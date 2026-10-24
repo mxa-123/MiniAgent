@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+dist/
+build/
+*.spec
+.miniagent/
+tests/.tmp_webui/
+tests/.tmp_*/
+*.log
+
+# 线上试玩部署目录（含 8MB 便携包 ZIP）与宣传素材，不进仓库
+deploy/
+promo/
