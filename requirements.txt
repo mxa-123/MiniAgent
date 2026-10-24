@@ -1,0 +1,6 @@
+# MiniAgent 只依赖 Python 标准库即可运行（Python 3.8+）。
+# requests 是可选加速项：装上后 HTTP 请求体验更好（连接池 / 超时更稳），没装就用 urllib。
+requests>=2.25
+
+# 打包成 exe 时才需要（Win7 建议 4.x，配合 Python 3.8）：
+# pyinstaller==4.10
