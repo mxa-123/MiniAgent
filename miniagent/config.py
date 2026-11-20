@@ -23,11 +23,15 @@ DEFAULTS: Dict[str, Any] = {
     "timeout": 120,
     "stream": True,
     "fallback_text_protocol": True,  # 模型不支持 function calling 时降级为 JSON 块协议
+    # ── 模型目录（插件化）：为空时自动由上面四个标量包装成一条「默认模型」──
+    "models": [],
+    "active_model": "",
     # ── 行为 ──
     "system_prompt": "你是 MiniAgent（灵枢），一个务实、高效的本地 AI 助手。"
                      "用中文回答；先给结论再展开；不确定就说不确定，不编造。"
                      "能调用工具时优先调用工具拿到事实，再回答。",
-    "max_steps": 24,               # 单轮最多工具调用轮次
+    "mode": "standard",           # minimal / standard / code / creator
+    "max_steps": 24,               # 单轮最多工具调用轮次（运行时会被模式覆盖）
     "max_tool_output": 8000,
     "workspace": ".",
     "confirm_tools": ["run_command", "write_file", "python_eval"],
@@ -37,6 +41,8 @@ DEFAULTS: Dict[str, Any] = {
     "skills_dir": "skills",
     "enable_builtin_tools": True,
     "mcpServers": {},
+    # ── 新手引导（第一次打开时的设置向导状态）──
+    "onboarding": {"done": False, "preset": ""},
     # ── 界面 ──
     "webui": {"host": "127.0.0.1", "port": 8787, "open_browser": True},
     "log_level": "INFO",

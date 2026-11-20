@@ -26,7 +26,12 @@ HELP = """\
   /skills            列出技能
   /plugins           列出插件（含加载错误）
   /mcp               列出 MCP 服务器
-  /model <名称>      切换模型
+  /model <名称>      临时改当前模型名
+  /models            列出模型目录（★ = 当前使用的）
+  /use <id>          切换到模型目录里的某个模型
+  /addmodel <id> <来源> <模型名> [地址]   新增一条模型
+  /mode [名称]       查看或切换模式 minimal/standard/code/creator
+  /kernel            查看插件化内核的服务 / 提示词段 / 槽位
   /config [k] [v]    查看或临时修改配置（如 /config temperature 0.7）
   /new               清空当前会话
   /save [文件]       导出会话到 JSONL
@@ -186,6 +191,51 @@ def handle_command(rt: Runtime, line: str) -> bool:
             if rt.agent:
                 rt.agent.llm = rt.llm
             print("已切换到 %s" % arg)
+    elif cmd == "/models":
+        cat = rt.model_catalog()
+        print("模型目录（共 %d 个，当前 %s）：" % (cat["count"], cat["active_model"] or "-"))
+        for m in cat["models"]:
+            mark = "★" if m["active"] else " "
+            flag = "" if m["enabled"] else "  [已停用]"
+            key = "有Key" if m["has_key"] else "无Key"
+            print("  %s %-14s %-18s %-12s %s%s"
+                  % (mark, m["id"], m["label"][:16], m["provider"], key, flag))
+            print("      模型=%s  地址=%s" % (m["model"], m["api_base"] or "-"))
+    elif cmd == "/use":
+        if not arg:
+            print("用法: /use <模型 id>；先跑 /models 看有哪些")
+        else:
+            r = rt.use_model(arg.split()[0])
+            print(r["message"])
+    elif cmd == "/addmodel":
+        parts = arg.split()
+        if len(parts) < 3:
+            print("用法: /addmodel <id> <来源> <模型名> [服务地址]")
+            print("  来源: mock / ollama / openai_compat")
+        else:
+            r = rt.save_model({"id": parts[0], "provider": parts[1],
+                               "model": parts[2],
+                               "api_base": parts[3] if len(parts) > 3 else "",
+                               "label": parts[0]})
+            print(r["message"])
+            if r.get("ok"):
+                print("  云端模型还要填 Key：在设置界面里编辑这条模型")
+    elif cmd == "/mode":
+        if not arg:
+            cat = rt.mode_catalog()
+            print("当前模式: %s" % cat["active"])
+            for m in cat["modes"]:
+                mark = "★" if m["active"] else " "
+                print("  %s %-10s %-6s %s（最多 %d 步）"
+                      % (mark, m["id"], m["label"], m["summary"], m["max_steps"]))
+        else:
+            print(rt.set_mode(arg.split()[0])["message"])
+    elif cmd == "/kernel":
+        ks = rt.kernel_status()
+        print("内核服务: %s" % (", ".join(ks["services"]) or "-"))
+        print("提示词段: %s" % (", ".join(ks["sections"]) or "-"))
+        print("槽位:     %s" % (", ".join(ks["slots"]) or "-"))
+        print("已装插件: %s" % (", ".join(ks["plugins"]) or "-"))
     elif cmd == "/config":
         _handle_config(rt, arg)
     elif cmd == "/new":

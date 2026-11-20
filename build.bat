@@ -1,8 +1,10 @@
 @echo off
-REM Pack MiniAgent into a single exe.
-REM For Windows 7 targets use PyInstaller 4.x (works with Python 3.8);
-REM on Windows 10/11 you can use a newer version.
+REM Legacy build: pack the CLI entry into a single exe.
+REM For the desktop window installer, use installer\build_installer.bat instead.
+REM For Windows 7 targets use PyInstaller 4.x (works with Python 3.8).
+REM Keep this file pure ASCII: the Win7 GBK console garbles Chinese text.
 chcp 936 >nul
+cd /d "%~dp0"
 set PYINSTALLER_VER=pyinstaller==4.10
 
 echo === MiniAgent build ===

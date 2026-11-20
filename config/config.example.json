@@ -1,4 +1,6 @@
 {
+  "_说明": "复制到 ~/.miniagent/config.json 后修改，不要放进项目目录，避免 Key 被提交。api_key 建议留空、改用环境变量 MINIAGENT_API_KEY。models 为空时会自动用上面四个标量包装成一条默认模型；mode 可选 minimal / standard / code / creator。",
+
   "provider": "openai_compat",
   "model": "deepseek-chat",
   "api_base": "https://api.deepseek.com/v1",
@@ -9,6 +11,38 @@
   "stream": true,
   "fallback_text_protocol": true,
 
+  "models": [
+    {
+      "id": "cloud",
+      "label": "云端 DeepSeek",
+      "provider": "openai_compat",
+      "model": "deepseek-chat",
+      "api_base": "https://api.deepseek.com/v1",
+      "api_key": "",
+      "enabled": true
+    },
+    {
+      "id": "local",
+      "label": "本地 Ollama",
+      "provider": "ollama",
+      "model": "qwen2.5:7b",
+      "api_base": "http://127.0.0.1:11434",
+      "api_key": "",
+      "enabled": true
+    },
+    {
+      "id": "demo",
+      "label": "离线演示",
+      "provider": "mock",
+      "model": "演示模式",
+      "api_base": "",
+      "api_key": "",
+      "enabled": true
+    }
+  ],
+  "active_model": "cloud",
+
+  "mode": "standard",
   "system_prompt": "你是 MiniAgent（灵枢），一个务实、高效的本地 AI 助手。用中文回答；先给结论再展开；不确定就说不确定，不编造。能调用工具时优先调用工具拿到事实，再回答。",
   "max_steps": 24,
   "max_tool_output": 8000,
@@ -29,6 +63,7 @@
     }
   },
 
+  "onboarding": { "done": false, "preset": "" },
   "webui": { "host": "127.0.0.1", "port": 8787, "open_browser": true },
   "log_level": "INFO"
 }

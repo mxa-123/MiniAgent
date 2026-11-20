@@ -1,7 +1,10 @@
 @echo off
-REM MiniAgent setup for Windows 7 / 8.1
-REM Win7 needs Python 3.8.10 (last version supporting Windows 7)
+REM MiniAgent setup for Windows 7 / 8.1 (source mode, needs Python 3.8.10)
+REM Win7 needs Python 3.8.10 (last version supporting Windows 7).
+REM NOTE: the setup EXE in dist\ is 64-bit Win8+/Win10/Win11 only, NOT for Win7.
+REM Keep this file pure ASCII: the Win7 GBK console garbles Chinese text.
 chcp 936 >nul
+cd /d "%~dp0"
 echo === MiniAgent setup ===
 
 where python >nul 2>nul
@@ -27,6 +30,7 @@ echo [*] generating default config
 python run.py --init
 
 echo [*] setup done.
-echo [*] config file: %%USERPROFILE%%\.miniagent\config.json
-echo [*] next: run.bat (CLI)   or   run_web.bat (Web UI)
+echo [*] config file: %USERPROFILE%\.miniagent\config.json
+echo [*] next: run.bat [desktop window] / run_web.bat [browser] / run_cli.bat [CLI]
+echo [*] If the window does not appear, run run_debug.bat
 pause

@@ -11,3 +11,6 @@ tests/.tmp_*/
 # 线上试玩部署目录（含 8MB 便携包 ZIP）与宣传素材，不进仓库
 deploy/
 promo/
+
+# 本地配置可能含 API Key，绝不进仓库（设置向导只写 ~/.miniagent/config.json）
+config/config.json

@@ -1,248 +1,267 @@
 # MiniAgent（灵枢）
 
-一个**能在 Windows 7 / 8.1 上跑**的、可扩展的本地 AI Agent。
-纯 Python 标准库实现，Python 3.8 起步，装不装第三方包都能跑。
+**一个会自己干活的 AI 助手。** 你说一句「把桌面这些照片按月份整理好」，它会自己拆步骤、动手做、看结果，不对就换个办法，直到把事办完。
+
+它和聊天 AI 的区别只有一句话：**聊天 AI 给你答案，它帮你把活干完。**
+
+- 有软件窗口：双击 `run.bat` 直接开一个桌面窗口，不用开浏览器、不用记命令
+- 有安装包：`dist/MiniAgent-安装包.exe` 双击就装，不用管理员权限、不用先装 Python
+- 多个模型随时切换：云端、本地 Ollama、离线演示都存进同一个「模型目录」，窗口顶上一拉就换，不用改配置文件
+- 四档模式：极简 / 标准 / 编程 / 创作，按任务挑一档，自动调整步数和提示词
+- 本地优先：文件、对话都留在你自己的电脑里，断网也能用
+- 全免费、全开源：[github.com/mxa-123/MiniAgent](https://github.com/mxa-123/MiniAgent)
+- 老电脑：源码方式仍可在 Windows 7 / 8.1 上跑（见下面「Windows 7 说明」）
 
 ---
 
-## 一、为什么它能跑在 Win7
+## 一、最快上手：双击两个文件
 
-| 约束 | 结论 | 本项目的做法 |
+### 方式 A：直接用（项目文件夹里）
+
+**双击 `run.bat`** → 弹出「MiniAgent」桌面窗口。第一次打开会自动问你选哪个模型来源，选完点「保存并开始」就能聊天。
+
+窗口从上到下就三块：最上面是「模型」和「模式」两个下拉框加「设置」按钮，中间是聊天记录，下面输入框打字后按 **Enter 发送**、**Shift+Enter 换行**。两个下拉都是即选即生效，不用重启。
+
+> 窗口没出来？双击 `run_debug.bat`，黑框会把错误留着不关；详细记录也在 `~/.miniagent/desktop.log`。
+
+### 方式 B：装到电脑里（推荐给不想折腾的人）
+
+**双击 `dist/MiniAgent-安装包.exe`** → 一路点「下一步」→ 装好。
+
+- 装在 `C:\Users\你的用户名\AppData\Local\MiniAgent`，**不弹管理员权限窗口**
+- 自动建好桌面快捷方式「MiniAgent」和开始菜单文件夹
+- 不用先装 Python，安装包里已经自带
+- 不想要了：开始菜单 → MiniAgent → Uninstall，或到「设置 → 应用」里卸载
+- 你的设置存在 `~/.miniagent/config.json`，**卸载不会删掉它**
+
+> 安装包只是文件，构建时只做了编译和完整性检查，没有真的装到任何电脑上。
+
+### 第一次打开：选一个模型来源
+
+| 选哪个 | 适合谁 | 要准备什么 |
 |---|---|---|
-| Python 3.9+ 安装器**拒绝**在 Win7 安装 | Win7 只能用 **Python 3.8.10**（官方最后一版支持 Win7） | 全代码兼容 3.8，有 `tests/py38_compat.py` 自动检查 |
-| 老机器装包困难 / 无外网 | 依赖越少越好 | **零必需依赖**，只用 `urllib / json / subprocess`；`requests` 可选 |
-| 中文用户名 + GBK 控制台 | 乱码高发 | 所有 I/O 显式 UTF-8，启动时 `sys.stdout.reconfigure(utf-8)` |
-| cmd.exe 不支持 ANSI 颜色 | 彩色输出变乱码 | CLI 不输出颜色，只用纯文本标签 |
-| 老浏览器 | 不能用现代前端构建产物 | Web 界面是单个原生 HTML 文件，无 CDN、无打包 |
+| **先试试看** | 只想看看界面长什么样 | 什么都不用。回答是模拟的 |
+| **本地免费模型** | 在意隐私、想断网用 | 本机装好并启动 Ollama |
+| **云端模型（效果最好）** | 想真正拿它干活 | 一个 API Key（以 DeepSeek 为例，填进去就行） |
 
-Win8.1 同理可用（可用 Python 3.8～3.12 任意版本）。
+选完点「保存并开始」立刻生效，不用重启。拿不准可以填完 Key 先点「测试连接」，会直接告诉你连没连上。不想选就点「跳过，先用演示模式」。
+
+界面上有一排「不知道说什么？点一个试试」，六个卡片点一下就发送。或者直接用自己的话说，比如「读一下 README.md，用三句话讲清楚」。
 
 ---
 
-## 二、三步跑起来（Windows）
+## 二、常见问题
 
-```bat
-install_win7.bat          :: 1. 检查 Python、装可选依赖、生成配置文件
-notepad %USERPROFILE%\.miniagent\config.json   :: 2. 填 api_key
-run.bat                   :: 3. 开聊（或 run_web.bat 开网页版）
+**没有 API Key 怎么办？**
+选「本地免费模型」（装 Ollama）或「先试试看」。云端 Key 需要去模型服务商官网申请。
+
+**报错看不懂？**
+窗口会把技术报错翻译成人话，还会写清楚下一步，配一个「去设置」按钮。比如「API Key 不对 → 去设置检查 Key」。
+
+**它会动我别的地方的文件吗？**
+默认只能在**软件所在文件夹**里操作。写文件、执行命令、跑代码这三类操作，会先弹窗问你「允许 / 拒绝」，**90 秒不点就自动拒绝**，不点绝不会偷偷执行。重要文件仍然建议先备份。
+
+**设置存在哪？安全吗？**
+存在你自己的用户目录 `~/.miniagent/config.json`，**不会写进项目文件夹**，也不会被提交到 GitHub。API Key 输入框是星号，而且不会回显完整值。
+
+**想换模型？**
+窗口顶上「模型」下拉直接选，立刻生效；网页版和命令行也各有对应的切换入口。想加一条新模型，点「设置」里新增，或命令行用 `/addmodel`。已经存过 Key 的话，Key 留空就表示不修改，只改模型名不会丢 Key。
+
+**四档模式是干嘛的？**
+「极简」省步骤省算力，适合简单问答；「标准」是默认；「编程」和「创作」给更多步骤和更专门的提示词。切换同样即选即生效。
+
+**想用网页版或命令行？**
+`run_web.bat` 开浏览器界面，`run_cli.bat` 开命令行。两者都保留着，功能没变。
+
+**Windows 7 能用这个安装包吗？不能。**
+本机的 Python 是 3.14 64 位，PyInstaller 6.x 打出来的程序**只支持 64 位 Windows 8 / 10 / 11**，不支持 Win7，也不支持 32 位系统。Win7 请按下面的「Windows 7 说明」用源码方式跑。
+
+---
+
+## 三、Windows 7 说明（重要）
+
+| 情况 | 怎么做 |
+|---|---|
+| Win10 / Win11 64 位 | 直接用 `dist/MiniAgent-安装包.exe` |
+| Win7 / Win8.1 / 32 位 | **不要用这个安装包**。装 Python 3.8.10（Win7 能用的最后一版），把项目文件夹拷过去，双击 `run.bat` |
+| 想给 Win7 单独做安装包 | 需要 **Python 3.8.10 32 位 + PyInstaller 4.10** 重新打一遍，再用 `installer/MiniAgent.nsi` 编译。构建脚本里预留了这条路径的说明，但本次没有执行 |
+
+源码本身只用标准库、兼容 Python 3.7 / 3.8，所以老机器能跑；不支持的是这次用新 Python 打出来的那个 exe。
+
+---
+
+## 四、它能替你干什么
+
+| 场景 | 你可以这样说 |
+|---|---|
+| 整理文件 | 「把当前文件夹里的图片按月份归类，先给我一份计划」 |
+| 查资料 | 「帮我搜索一下 Python 3.7 和 3.8 的主要区别」 |
+| 读文档 | 「读一下 README.md，三句话讲清楚」 |
+| 批量改内容 | 「把这些文件里的旧称呼统一换成新的」 |
+| 写代码 | 「写个脚本统计每种后缀各有多少文件，先把代码给我看」 |
+| 记事 | 「记住：我偏好中文、简短直接的回答」 |
+
+内置 12 个工具：读写文件、列目录、搜文件、搜内容、执行命令、跑 Python、抓网页、联网搜索、长期记忆、看时间。工具调用在窗口里显示成人话（比如「正在读取文件 README.md」），不会甩一堆看不懂的 JSON 给你。
+
+---
+
+## 五、接下来做什么（迭代顺序）
+
+已完成：修好所有 bat 的启动目录 Bug、加上桌面窗口、做出可双击的安装包，并把内核换成插件化架构——**模型从「一个配置」变成「一个目录」**，加了四档运行时模式。架构细节见下面第六节。
+
+下一轮（对新手有直接感知）：
+- 长对话自动压缩，聊久了不卡、不爆内存
+- 结构化步骤记录，能回看「它刚才到底做了什么」
+
+更后面（决定上限）：本地 / 云端自动路由、可回放的 Trajectory 日志、按槽位贡献界面的正式插件包。完整分层与阶段见 [PLAN_DeepSeek重构.md](PLAN_DeepSeek重构.md)。
+
+---
+
+## 六、技术说明（进阶，新手可跳过）
+
+### 插件化内核：这一轮改了什么
+
+以前模型是配置里四个写死的标量，加能力就得改主循环。现在换成「内核 + 可插拔部件」：
+
+| 部件 | 文件 | 作用 |
+|---|---|---|
+| 微内核 | `kernel.py` | 服务定位 `provide/get/require`、可拦截事件链 `on/emit`、可卸载副作用 `effect/inject`、槽位 `slot/contributions`、分段提示词 `section/compose_prompt`、插件 `load/unload/dispose` |
+| 模型目录 | `models.py` | 多条模型 + 当前生效模型，切换时重建 LLM 后端 |
+| 运行时模式 | `mode.py` | 四档模式，影响步数与提示词段 |
+| 装配中心 | `runtime.py` | 把上面几样接起来，给三个界面提供统一入口 |
+
+一次提问经过的路径：`agent.chat()` 先发 `agent.request` 事件，插件可以改写本轮用的 `llm`（**只改本轮，不动全局**）或短路；系统提示词由 `compose_prompt()` 把 `persona` 段和各模式段拼起来；模型由 `ModelRegistry.resolve()` 给出只读视图传给 `create_llm`。所有注册都返回 `Disposer`，卸载时逐项回滚，不留残留。
+
+这样带来的实际好处：加一种模型来源、加一段行为约束、加一个界面区块，都不必再动 ReAct 主循环。
+
+### 启动入口
+
+```
+run.bat         默认：pythonw.exe desktop.py（桌面窗口，无黑框）
+run_debug.bat   带控制台启动桌面窗口，排错用
+run_web.bat     浏览器界面（保留）
+run_cli.bat     命令行界面（保留）
+install_win7.bat  Win7 / 8.1 环境检查
+build.bat       旧版 PyInstaller 打 CLI 的脚本
+installer/build_installer.bat   一键生成安装包
 ```
 
-手动方式：
+每个 bat 都在调用 python 之前做了 `cd /d "%~dp0"`，从任何目录（包括 `C:\Windows\System32`）双击都能找到自己的文件。bat 内容保持纯 ASCII，避免 Win7 GBK 控制台中文乱码。`run.bat` 还会逐个检查 PATH 里的 Python，挑一个真的带 tkinter 的来开窗口。
+
+### 安装包怎么来的
+
+`installer/build_installer.py` 先用 PyInstaller 把 `desktop.py` 打成自带 Python 的 `MiniAgent.exe`（`--onefile --windowed --add-data` 带上 config / skills / plugins），再调 `C:\Program Files (x86)\NSIS\makensis.exe` 编译 `installer/MiniAgent.nsi`，成品放 `dist/`。
+
+- 如果 PyInstaller 和本机 Python 不兼容，脚本会自动降级：改成安装源码 + 检测系统 Python + 快捷方式指向 `pythonw.exe desktop.py`，并明确提示「需已安装 Python 3.8+」
+- NSIS 只写 HKCU 卸载信息、装到 `%LOCALAPPDATA%\MiniAgent`，不写 HKLM、不弹 UAC
+- 构建中间物（build/、*.spec、__pycache__）用完清理；**不会执行生成的安装程序**
+
+### 桌面窗口的设计
+
+`desktop.py` 只用 tkinter 标准库：对话在后台线程跑，事件经队列交给主线程用 `after` 刷新；危险操作确认用 `threading.Event` 把请求交给主线程弹窗，默认拒绝、90 秒超时拒绝；`pythonw.exe` 没有控制台，所以异常一律写 `~/.miniagent/desktop.log` 并弹窗。
+
+桌面版一律逐条确认危险操作，即使配置里写过 `auto_confirm=true` 也不静默放行。
+
+打包成 exe 后 `__file__` 会指向临时解压目录，所以启动时按 `sys.executable` 把工作目录切回 exe 所在目录，扩展目录也指向安装文件夹，否则 config / skills / plugins 会找不到。
+
+设置只走 `apply_setup()` 写用户目录，保存后按 WebUI 的同样做法同步进模型目录并重建模型后端。模型 / 模式下拉则直接走 `Runtime` 的统一入口。
+
+### 为什么源码能跑在 Win7
+
+| 约束 | 做法 |
+|---|---|
+| Python 3.9+ 安装器拒绝在 Win7 安装 | 全代码兼容 3.8；Win7 便携包用 Python 3.7.9 |
+| 中文用户名 + GBK 控制台 | 所有 I/O 显式 UTF-8；CLI / bat 不输出 ANSI 颜色与 emoji |
+| 老机器装包困难 / 无外网 | 零必需依赖，只用标准库；`requests` 可选 |
+
+Win7 打包链在 `packaging/`：`prepare_win7.py`、`check_win7_compat.py` 等。
+
+### 目录结构
+
+```
+desktop.py              桌面窗口（默认入口，含模型 / 模式下拉）
+run.py / miniagent/cli.py        命令行入口
+miniagent/webui.py      浏览器界面（含模型 / 模式接口）
+miniagent/kernel.py     插件化微内核：服务定位 / 事件链 / 槽位 / 分段提示词
+miniagent/models.py     模型目录 + 多模型切换（兼容旧单模型配置）
+miniagent/mode.py       四档运行时模式
+miniagent/onboarding.py 设置向导 / 人话层 / 连接自检
+miniagent/agent.py      ReAct 主循环
+miniagent/llm.py        OpenAI 兼容 / Ollama 原生 / Mock 三种后端
+miniagent/tools.py / builtin.py  工具注册表 + 12 个内置工具
+miniagent/config.py / runtime.py 配置与运行时装配
+config/config.example.json
+plugins/  skills/       丢文件进去就多出工具 / 能力
+installer/              NSIS 脚本 + 构建脚本 + 源码模式启动器
+dist/                   最终安装包
+```
+
+### 模型后端与模型目录
+
+`provider` 三选一：`openai_compat`（DeepSeek / OpenAI / 智谱 / 通义 / vLLM / Ollama 的 OpenAI 端点）、`ollama`（本机原生接口，无需 Key）、`mock`（离线演示）。
+
+> 模型不支持 function calling 时，`fallback_text_protocol` 会自动降级成「输出 JSON 代码块」的文本协议，照样能调工具。
+
+新配置用 `models: [ ... ]` 存多条模型、`active_model` 指定当前用哪条：
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 唯一标识，只允许字母数字 / 点 / 短横 / 下划线 |
+| `label` | 界面上显示的名字 |
+| `provider` / `model` / `api_base` / `api_key` | 一条模型自己的连接信息 |
+| `enabled` | 是否参与切换 |
+
+**兼容旧配置**：没有 `models` 时，注册表会把顶层那四个标量自动包装成一条 `id="default"` 的模型，行为跟以前完全一样。切换模型时顶层四个标量会同步刷新，所以 `--model`、环境变量、老代码路径都不用改。目录对外只输出 `has_key`，**不回显 API Key 明文**。写盘位置跟着 `Runtime.home` 走，测试与自定义 `--home` 不会碰到用户真实配置。
+
+`mode.py` 的四档模式作用于 `max_steps` 和系统提示词分段：`minimal`(6 步) / `standard`(24 步) / `code`(32 步) / `creator`(40 步)。模式段落通过内核的 `section()` 注入，卸载时一并移除。
+
+### 命令行参数与斜杠命令
 
 ```bat
-python run.py --init                      :: 生成 ~/.miniagent/config.json
+python run.py --init                      :: 生成默认配置
 python run.py -p "列出当前目录的 py 文件"  :: 单次提问
-python run.py                             :: 进入交互
-python run.py --web                       :: 打开 http://127.0.0.1:8787
+python run.py --web                       :: 网页界面
+python run.py --list-tools                :: 打印工具清单
 ```
 
-常用参数：`--model` `--provider` `--api-base` `--api-key` `-w 工作目录` `--session 会话名` `--no-stream` `--list-tools`。
+常用参数：`--model` `--provider` `--api-base` `--api-key` `-w 工作目录` `--session` `--no-stream`。
 
----
+斜杠命令：`/help /status /tools /skills /plugins /mcp /model /config /new /save /sessions /load /reload /confirm /exit`。
 
-## 三、目录结构
+本轮新增：`/models`（列出模型目录，★ 标记当前）、`/use <id>`（切换）、`/addmodel <id> <来源> <模型名> [地址]`（新增）、`/mode [名称]`（查看或切换四档模式）、`/kernel`（查看内核里的服务 / 提示词段 / 槽位）。网页版对应接口是 `/api/models`、`/api/modes`、`/api/kernel`。
 
-```
-miniagent/
-├── run.py                 入口（双击 run.bat 就是跑它）
-├── install_win7.bat       环境检查 + 生成配置
-├── run.bat / run_web.bat  启动脚本
-├── build.bat              PyInstaller 打成单个 exe
-├── config/config.example.json
-├── plugins/               ★ 插件目录：丢 .py 进去就多出工具
-│   └── example_tools.py   示例：calc / system_info / dir_stats
-├── skills/                ★ 技能目录：丢 .md 进去就多出能力
-│   ├── code_review.md
-│   └── win7_compat.md
-├── tests/                 冒烟测试 / 兼容检查 / 假 MCP 服务器
-└── miniagent/             核心（不要改，除非你想改内核）
-    ├── agent.py           ReAct 主循环
-    ├── llm.py             OpenAI 兼容 / Ollama 原生 / Mock 三种后端
-    ├── tools.py           工具注册表 + 自动生成 JSON Schema
-    ├── builtin.py         内置工具 12 个
-    ├── plugins.py         插件加载器
-    ├── skills.py          技能加载器
-    ├── mcp.py             MCP 客户端（stdio JSON-RPC，纯标准库）
-    ├── memory.py          会话（JSONL）+ 长期记忆（Markdown）
-    ├── runtime.py         装配层
-    ├── cli.py             命令行
-    └── webui.py           本地网页 + SSE
-```
-
-**数据流**：
-
-```
-用户输入 → Agent.chat()
-              ├─ system(环境+技能目录) + 历史 + 提问 → LLM
-              ├─ LLM 返回 tool_calls → Registry.execute()
-              │        ├─ 内置工具 / 插件工具 / 技能工具 / MCP 工具
-              │        └─ 危险工具先过确认回调
-              └─ 结果回灌 → 继续，直到模型给出最终答案
-```
-
----
-
-## 四、模型后端
-
-`config.json` 里 `provider` 三选一：
-
-| provider | 适用 | 关键配置 |
-|---|---|---|
-| `openai_compat`（默认） | DeepSeek / OpenAI / Moonshot / 智谱 / 通义 / vLLM / Ollama 的 OpenAI 端点 | `api_base`、`api_key`、`model` |
-| `ollama` | 本机 Ollama 原生接口（无需 key） | `api_base=http://127.0.0.1:11434`、`model=qwen2.5:7b` |
-| `mock` | 离线自测，不联网 | 无 |
-
-示例：
-
-```json
-{ "provider": "openai_compat", "api_base": "https://api.deepseek.com/v1",
-  "api_key": "sk-xxxx", "model": "deepseek-chat" }
-```
-
-```json
-{ "provider": "ollama", "api_base": "http://127.0.0.1:11434", "model": "qwen2.5:7b" }
-```
-
-> **模型不支持 function calling 怎么办**：`fallback_text_protocol` 默认开启，
-> Agent 会自动改用「输出 \`\`\`json {"tool":...,"arguments":{...}}\`\`\`」的文本协议，照样能调工具。
-
----
-
-## 五、四种扩展方式
-
-### 1) 插件：加工具（推荐）
-
-在 `plugins/` 下新建任意 `.py`：
-
-```python
-from miniagent.tools import tool
-
-@tool(description="查询城市天气")
-def weather(city: str) -> str:
-    """查询天气。
-    :param city: 城市名
-    """
-    return city + "：晴 26℃"
-```
-
-工具的参数 Schema 由**类型注解 + 文档字符串自动生成**，不用手写 JSON。
-需要读配置、写记忆时用 `setup(ctx)`：
-
-```python
-def setup(ctx):                 # ctx.cfg / ctx.memory / ctx.registry / ctx.emit
-    ctx.registry.register_func(my_func, risky=True)
-```
-
-`/reload` 可热重载，不用重启。
-
-### 2) 技能：加「做事方法」
-
-在 `skills/` 下新建 `.md`：
-
-```markdown
----
-name: 周报生成
-description: 根据本周改动生成周报
----
-1. 用 run_command 取 git log
-2. 按「完成 / 进行中 / 风险」三段输出
-3. 每条不超过 20 字
-```
-
-启动时自动进入技能目录，模型可用 `use_skill("周报生成")` 加载正文。
-
-### 3) MCP：接别人的工具服务器
-
-`config.json` 里加：
-
-```json
-"mcpServers": {
-  "filesystem": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
-    "enabled": true
-  }
-}
-```
-
-启动后自动连上，工具名形如 `mcp__filesystem__read_file`。
-协议是 stdio + JSON-RPC 2.0，自己实现的，不依赖 `mcp` 包（Win7 也能用）。
-注意：Win7 上 Node 最高只能装 **Node 16**。
-
-### 4) 直接改内核
-
-`miniagent/builtin.py` 加函数 + 加进注册列表即可；`agent.py` 是主循环，`llm.py` 加后端。
-
----
-
-## 六、内置工具（12 个）
-
-| 工具 | 作用 | 需确认 |
-|---|---|---|
-| `read_file` / `write_file` | 读写文本（UTF-8/GBK 自动兜底） | 写 |
-| `list_dir` / `search_files` | 列目录 / glob 搜文件 | |
-| `grep_text` | 按关键词或正则检索文件内容 | |
-| `run_command` | 执行命令（拦截 format/del /f/shutdown 等） | ✅ |
-| `python_eval` | 子进程执行 Python，可超时终止 | ✅ |
-| `fetch_url` | 抓网页正文（去标签） | |
-| `web_search` | Bing / DuckDuckGo 搜索 | |
-| `remember` / `recall` | 长期记忆读写（`~/.miniagent/MEMORY.md`） | |
-| `get_time` | 当前时间 | |
-
-安全边界：
-
-- 文件类工具限制在 `workspace` 内，路径穿越直接拒绝；
-- 危险工具默认要人工确认（`/confirm off` 可关）；
-- 命令有高危黑名单。
-
----
-
-## 七、命令
-
-```
-/help / status / tools / skills / plugins / mcp
-/model <名称>              切换模型
-/config [k] [v]            查看或改配置（自动写回文件）
-/new /save /sessions /load 会话管理
-/reload                    热重载插件与技能
-/confirm on|off            危险工具确认开关
-/exit
-```
-
----
-
-## 八、打包成 exe（给没装 Python 的机器）
+### 自测
 
 ```bat
-build.bat
+python -m py_compile desktop.py installer\build_installer.py
+python tests/smoke_test.py        :: 18 项，不联网，Mock 后端跑通全链路
+python tests/py38_compat.py       :: Python 3.8 语法/API 兼容检查
+python tests/check_webui.py       :: 网页、状态接口、设置接口、SSE 对话流
+python tests/test_onboarding.py   :: 新手引导层
+python tests/test_kernel.py       :: 微内核 / 模型目录 / 四档模式
+installer\build_installer.bat     :: 编译安装包并列出 dist 内容
 ```
 
-Win7 目标用 **PyInstaller 4.10 + Python 3.8**（`build.bat` 里已写死这个版本）；
-Win10/11 可改新版本。产物：`dist\miniagent.exe`。
+### 已知限制
+
+- 本次生成的安装包是 **64 位 Win8+/Win10/Win11 专用**，不能装 Win7，也不能装 32 位系统。
+- 长期记忆是关键词检索的 Markdown，没有向量数据库。
+- 上下文超限只做「保留最近 N 条」的朴素裁剪，还没做自动摘要（下一轮）。
+- Win7 上 Node 类 MCP 服务器需 Node ≤ 16。
+- 插件化内核目前只提供机制（服务 / 事件 / 槽位 / 分段提示词），**还没有做成可分发的插件包格式**，也没有实现自动路由与 Trajectory 日志。
 
 ---
 
-## 九、自测
+## 七、设计灵感与版权说明
 
-```bat
-python tests/smoke_test.py     :: 18 项，不联网，Mock 后端跑通全链路
-python tests/py38_compat.py    :: Python 3.8 语法/API 兼容检查
-python tests/check_webui.py    :: 网页与 SSE 接口检查
-```
+本项目在架构上参考了开源项目 **DeepSeek Harness** 公开的设计思想：插件化内核、服务定位、事件拦截、把模型当作可插拔目录、分段系统提示词、多档运行时模式。
 
----
+需要明确几点：
 
-## 十、已知限制
+- **只借鉴架构思想**。`kernel.py` / `models.py` / `mode.py` 及所有接线代码均为从零独立编写，仅用 Python 标准库；未使用、未复制、未翻译任何第三方项目的源码、注释、常量、配置键名、UI 文案、图标与素材。
+- **不冒用名称**。MiniAgent（灵枢）与 DeepSeek / DeepSeek Harness 没有官方关联，也不是其分支或衍生版本；文档提到对方仅用于如实说明设计灵感来源。
+- **参考资料不入库**。本机上仅用于阅读理解的其他项目源码，没有被复制进本仓库，也不会被打进安装包。
+- **第三方组件**：运行时可选依赖 Ollama 及各类 OpenAI 兼容接口服务，打包用到 PyInstaller / NSIS；它们各自遵循自己的许可证，本项目不重新分发它们的源码。
+- **本项目自身许可**：见 [`packaging/LICENSE.txt`](packaging/LICENSE.txt)（自由用于学习、研究与个人用途，复制 / 修改 / 分发需保留该声明）。参考项目的许可证以其自身仓库声明为准，本项目不作断言。
 
-- 没有向量数据库，长期记忆是关键词检索的 Markdown（够用且轻量）。
-- Web 界面不支持危险工具的交互确认（默认自动放行），需要确认请用 CLI。
-- 上下文超限只做「保留最近 N 条」的朴素裁剪，没做自动摘要。
-- Win7 上如需 Node 类 MCP 服务器，Node 版本 ≤ 16。
-
-## 十一、路线图
-
-- [ ] 上下文自动压缩 / 摘要
-- [ ] 子 Agent（任务分派与并行）
-- [ ] 定时任务（计划任务式自动化）
-- [ ] 多模态输入（图片 → 文本）
-- [ ] 更多内置技能包
+> 若相关权利方认为本项目的表述或实现有不妥，欢迎提 issue，我们会及时调整。

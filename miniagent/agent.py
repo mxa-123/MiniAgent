@@ -58,6 +58,9 @@ class Agent(object):
         self.auto_confirm = bool(cfg.get("auto_confirm", False))
         self.fallback_enabled = bool(cfg.get("fallback_text_protocol", True))
         self.extra_system: List[str] = []
+        # 插件化内核（可选）：由 Runtime.build 注入；直接构造 Agent 时为 None，
+        # 所有行为与改造前完全一致，保证现有调用方不受影响。
+        self.kernel = None
 
     # ── 事件（CLI / WebUI 都挂这里）──
     def emit(self, kind: str, data: Any = None) -> None:
@@ -69,6 +72,24 @@ class Agent(object):
 
     # ── 提示词 ──
     def system_prompt(self) -> str:
+        # 插件化路径：人格段由内核登记，各插件可贡献自己的段并按 order 合成。
+        # 无内核时退回原来的拼接逻辑，逐字一致。
+        if self.kernel is not None:
+            base = self.kernel.compose_prompt("")
+            env_block = ("\n# 运行环境\n- 系统: %s %s\n- 工作目录: %s\n- 当前时间: %s\n- Agent: MiniAgent 0.1"
+                         % (platform.system(), platform.release(),
+                            os.path.abspath(self.cfg.get("workspace", ".")), now_str()))
+            parts = [base, env_block]
+            if self.skills:
+                catalog = self.skills.catalog()
+                if catalog:
+                    parts.append("\n# 可用技能（需要时用 use_skill 加载详情）\n" + catalog)
+            if self.extra_system:
+                parts.append("\n" + "\n".join(self.extra_system))
+            if self.registry.names():
+                parts.append("\n# 可用工具\n" + self.registry.describe())
+            return "\n".join(p for p in parts if p).strip()
+
         parts = [str(self.cfg.get("system_prompt", "")).strip()]
         parts.append("\n# 运行环境\n- 系统: %s %s\n- 工作目录: %s\n- 当前时间: %s\n- Agent: MiniAgent 0.1"
                      % (platform.system(), platform.release(), os.path.abspath(self.cfg.get("workspace", ".")), now_str()))
@@ -95,6 +116,20 @@ class Agent(object):
 
     # ── 主循环 ──
     def chat(self, user_input: str, stream: bool = True) -> str:
+        # 请求级事件链：插件可拦截并改写「本轮用哪个后端」，
+        # 不改 self.llm，因此不会污染后续轮次或其他会话。
+        llm = self.llm
+        if self.kernel is not None:
+            try:
+                from .kernel import EVENT_REQUEST
+                payload = {"input": user_input, "llm": self.llm,
+                           "model": self.cfg.get("model"), "messages_hint": None}
+                out = self.kernel.emit(EVENT_REQUEST, payload)
+                if isinstance(out, dict) and out.get("llm") is not None:
+                    llm = out["llm"]
+            except Exception as exc:
+                LOG.debug("请求事件链异常: %s", exc)
+
         if user_input:
             self.memory.add("user", user_input)
         messages = self.build_messages("")
@@ -108,7 +143,7 @@ class Agent(object):
             self.emit("step", {"step": step, "max": self.max_steps})
             try:
                 on_delta = (lambda s: self.emit("delta", s)) if stream else None
-                resp: LLMResponse = self.llm.chat(messages, tools=tools, stream=stream, on_delta=on_delta)
+                resp: LLMResponse = llm.chat(messages, tools=tools, stream=stream, on_delta=on_delta)
             except LLMError as exc:
                 final = "模型调用失败：%s" % exc
                 self.emit("error", final)
