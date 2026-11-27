@@ -80,13 +80,38 @@
 
 ## 三、Windows 7 说明（重要）
 
+### 有专门的 32 位安装包
+
+**`dist/MiniAgent-Win7-32位安装包.exe`** —— 一个包通吃 Win7 / Win8.1 的 32 位和 64 位系统。
+
+| 项 | 值 |
+|---|---|
+| 大小 | 约 20 MB |
+| PE 位数 | `0x014c`，真 32 位（32 位程序在 64 位系统上照样跑） |
+| 内置运行时 | Python 3.7.9 win32 + tkinter 8.6，**目标机不需要装 Python** |
+| 安装位置 | `C:\Users\你的用户名\AppData\Local\MiniAgent` |
+| 权限 | HKCU，`RequestExecutionLevel user`，**不弹管理员窗口** |
+| 桌面快捷方式 | `MiniAgent`（图形界面）+ 开始菜单里 `MiniAgent-CLI`（控制台） |
+| 卸载 | 开始菜单 → MiniAgent → Uninstall |
+
+> **为什么必须用 Python 3.7.9 而不是 3.8**：Python 3.8 在裸 Win7 SP1 上依赖 `KB2533623`（微软已下线该补丁），`import ssl` 必然失败；3.7 走老式 `LoadLibrary`，不需要这个补丁。`packaging/README_Win7打包.md` 记着这条铁律。
+
+### 其他情况
+
 | 情况 | 怎么做 |
 |---|---|
-| Win10 / Win11 64 位 | 直接用 `dist/MiniAgent-安装包.exe` |
-| Win7 / Win8.1 / 32 位 | **不要用这个安装包**。装 Python 3.8.10（Win7 能用的最后一版），把项目文件夹拷过去，双击 `run.bat` |
-| 想给 Win7 单独做安装包 | 需要 **Python 3.8.10 32 位 + PyInstaller 4.10** 重新打一遍，再用 `installer/MiniAgent.nsi` 编译。构建脚本里预留了这条路径的说明，但本次没有执行 |
+| Win7 / Win8.1（任意位数） | 直接用 `dist/MiniAgent-Win7-32位安装包.exe` |
+| Win10 / Win11 64 位 | 用 `dist/MiniAgent-Win7-32位安装包.exe` 也行；`dist/MiniAgent-安装包.exe` 是 64 位专用版 |
+| 想跑源码 | 源码只用标准库，兼容 Python 3.7 / 3.8，双击 `run.bat` |
 
-源码本身只用标准库、兼容 Python 3.7 / 3.8，所以老机器能跑；不支持的是这次用新 Python 打出来的那个 exe。
+### Win7 上的四个功能入口
+
+| 功能 | 怎么用 |
+|---|---|
+| **开机自启** | 窗口左下角「开机自启：关」点一下变成「开」。写 `HKCU\...\CurrentVersion\Run`（Win7 上写启动文件夹脚本会被安全策略拦，注册表 Run 键是唯一可靠路径） |
+| **无人值守执行** | `MiniAgent-CLI.bat -p "把 D:\notes 汇总成 md" -y`。`-y` 会自动批准工具调用，不再等人输入，适合挂计划任务 |
+| **多会话** | 左栏「新建对话」，历史会话点一下就切回，消息各自隔离存储 |
+| **插件面板** | 左栏「插件」看已加载插件和工具，放 `.py` 进 `plugins/` 就能扩展，面板里可「重新加载插件」 |
 
 ---
 
@@ -190,10 +215,12 @@ miniagent/agent.py      ReAct 主循环
 miniagent/llm.py        OpenAI 兼容 / Ollama 原生 / Mock 三种后端
 miniagent/tools.py / builtin.py  工具注册表 + 12 个内置工具
 miniagent/config.py / runtime.py 配置与运行时装配
+miniagent/db.py         SQLite：会话 / 消息 / 执行轨迹三张表
+miniagent/autostart.py   开机自启（HKCU Run 键，Win7 唯一可靠路径）
 config/config.example.json
 plugins/  skills/       丢文件进去就多出工具 / 能力
 installer/              NSIS 脚本 + 构建脚本 + 源码模式启动器
-dist/                   最终安装包
+dist/                   最终安装包（Win8+64 位版 + Win7/32 位版）
 ```
 
 ### 模型后端与模型目录
@@ -224,11 +251,24 @@ python run.py --web                       :: 网页界面
 python run.py --list-tools                :: 打印工具清单
 ```
 
-常用参数：`--model` `--provider` `--api-base` `--api-key` `-w 工作目录` `--session` `--no-stream`。
+常用参数：`--model` `--provider` `--api-base` `--api-key` `-w 工作目录` `--session` `--no-stream` `-y`。
+
+`-y`（无人值守）会**自动批准所有工具调用**，不再等人工输入，配合 `-p` 就是一条命令跑完一个任务，适合挂 Windows 计划任务。
 
 斜杠命令：`/help /status /tools /skills /plugins /mcp /model /config /new /save /sessions /load /reload /confirm /exit`。
 
 本轮新增：`/models`（列出模型目录，★ 标记当前）、`/use <id>`（切换）、`/addmodel <id> <来源> <模型名> [地址]`（新增）、`/mode [名称]`（查看或切换四档模式）、`/kernel`（查看内核里的服务 / 提示词段 / 槽位）。网页版对应接口是 `/api/models`、`/api/modes`、`/api/kernel`。
+
+### 数据存在哪
+
+| 内容 | 位置 |
+|---|---|
+| 会话与消息 | `~/.miniagent/miniagent.db`（SQLite，三张表：`sessions` / `messages` / `trajectory`） |
+| 执行轨迹 | 同上库的 `trajectory` 表，逐条记 `thought` / `plan` / `action` / `observation` / `final` |
+| 配置 | `~/.miniagent/config.json` |
+| 日志 | `~/.miniagent/desktop.log` |
+
+数据库路径刻意避开中文用户名目录，Win7 上不会出现编码问题。
 
 ### 自测
 
@@ -239,14 +279,16 @@ python tests/py38_compat.py       :: Python 3.8 语法/API 兼容检查
 python tests/check_webui.py       :: 网页、状态接口、设置接口、SSE 对话流
 python tests/test_onboarding.py   :: 新手引导层
 python tests/test_kernel.py       :: 微内核 / 模型目录 / 四档模式
+python tests/vm_test_kernel.py    :: Win7 虚拟机内的内核逻辑自检（写软盘回传结果）
 installer\build_installer.bat     :: 编译安装包并列出 dist 内容
 ```
 
 ### 已知限制
 
-- 本次生成的安装包是 **64 位 Win8+/Win10/Win11 专用**，不能装 Win7，也不能装 32 位系统。
+- `dist/MiniAgent-安装包.exe` 是 **64 位 Win8+/Win10/Win11 专用**；Win7 和 32 位系统请用 `dist/MiniAgent-Win7-32位安装包.exe`。
 - 长期记忆是关键词检索的 Markdown，没有向量数据库。
 - 上下文超限只做「保留最近 N 条」的朴素裁剪，还没做自动摘要（下一轮）。
+- 插件面板只做「加载 / 卸载 / 列工具」，插件热替换（运行中替换实现）还没做。
 - Win7 上 Node 类 MCP 服务器需 Node ≤ 16。
 - 插件化内核目前只提供机制（服务 / 事件 / 槽位 / 分段提示词），**还没有做成可分发的插件包格式**，也没有实现自动路由与 Trajectory 日志。
 
