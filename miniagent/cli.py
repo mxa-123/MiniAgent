@@ -16,7 +16,11 @@ from .util import LOG, setup_console, setup_logging, short, truncate
 
 BANNER = """\
 MiniAgent %s —— Win7/8.1 可用的可扩展 AI Agent
-输入 /help 查看命令，/exit 退出。"""
+输入 /help 查看命令，/exit 退出。
+
+无人值守（计划任务 / 脚本）：
+  MiniAgent-CLI.bat -p "把 D:\\notes 里的 txt 汇总成 md" -y
+  -y 会自动批准工具调用，不再等人工输入。"""
 
 HELP = """\
 命令：
@@ -57,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--api-key", dest="api_key", help="覆盖 API Key")
     p.add_argument("--session", help="会话名（用于断点续聊）")
     p.add_argument("--no-stream", action="store_true", help="关闭流式输出")
+    p.add_argument("-y", "--yes", action="store_true",
+                   help="无人值守：自动批准所有工具调用（用于计划任务 / 脚本）")
     p.add_argument("--web", action="store_true", help="启动本地 Web 界面")
     p.add_argument("--port", type=int, help="Web 界面端口")
     p.add_argument("--list-tools", action="store_true", help="打印工具清单后退出")
@@ -123,6 +129,12 @@ def confirm_handler(tool: Tool, arguments: Dict[str, Any]) -> bool:
     except EOFError:
         return False
     return ans in ("y", "yes", "是")
+
+
+def auto_confirm_handler(tool: Tool, arguments: Dict[str, Any]) -> bool:
+    """无人值守模式：直接放行工具调用（用于计划任务 / 脚本）。"""
+    print("\n[自动批准] %s(%s)" % (tool.name, short(arguments, 220)))
+    return True
 
 
 # ── 交互循环 ────────────────────────────────────────────────
@@ -328,7 +340,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                      port=args.port or int(rt.cfg.get("webui.port", 8787)))
     if args.prompt:
         agent.on_event = render_event
-        agent.confirm = confirm_handler
+        agent.confirm = auto_confirm_handler if args.yes else confirm_handler
+        if args.yes:
+            print("[无人值守] 已自动批准工具调用\n")
         answer = agent.chat(args.prompt, stream=bool(rt.cfg.get("stream", True)))
         if not rt.cfg.get("stream", True):
             print(answer)
