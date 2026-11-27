@@ -613,8 +613,16 @@ class DesktopApp(object):
         foot.grid(row=4, column=0, sticky="sew", padx=12, pady=12)
         tk.Button(foot, text="设置", font=FONT_SMALL, bg=SIDE_CARD, fg=SIDE_INK,
                   activebackground="#3A3D48", activeforeground=SIDE_INK,
-                  relief="flat", bd=0, cursor="hand2", padx=12, pady=5,
+                  relief="flat", bd=0, cursor="hand2", padx=8, pady=5,
                   command=self.open_settings).pack(side="left")
+        tk.Button(foot, text="插件", font=FONT_SMALL, bg=SIDE_CARD, fg=SIDE_INK,
+                  activebackground="#3A3D48", activeforeground=SIDE_INK,
+                  relief="flat", bd=0, cursor="hand2", padx=8, pady=5,
+                  command=self.open_plugins).pack(side="left", padx=(6, 0))
+        tk.Button(foot, text="轨迹", font=FONT_SMALL, bg=SIDE_CARD, fg=SIDE_INK,
+                  activebackground="#3A3D48", activeforeground=SIDE_INK,
+                  relief="flat", bd=0, cursor="hand2", padx=8, pady=5,
+                  command=self.open_trajectory).pack(side="left", padx=(6, 0))
         tk.Label(foot, textvariable=self.status_var, font=FONT_SMALL, bg=SIDE_BG,
                  fg=SIDE_DIM, anchor="w").pack(side="right", fill="x", expand=True)
 
@@ -911,6 +919,10 @@ class DesktopApp(object):
             self._insert(chunk, "agent")
             self.answer_len += len(chunk)
             self.answer_buf.append(chunk)
+        elif kind in ("thought", "trajectory"):
+            self._append_hint("· 思考：" + _brief(data, 200))
+            if self.current_sid:
+                db.add_trace(self.current_sid, "thought", _brief(data, 400))
         elif kind == "step":
             info = data if isinstance(data, dict) else {}
             self.current_step = int(info.get("step", 1) or 1)
@@ -925,10 +937,14 @@ class DesktopApp(object):
             if info.get("risky"):
                 line += "（需要你确认）"
             self._append_hint(line)
+            if self.current_sid:
+                db.add_trace(self.current_sid, "action", line)
         elif kind == "tool_result":
             info = data if isinstance(data, dict) else {}
             out = _brief(info.get("output", ""), 150)
             self._append_hint("   → " + (out or "做完了"))
+            if self.current_sid:
+                db.add_trace(self.current_sid, "observation", out)
         elif kind == "error":
             self._close_answer()
             provider = str(self.rt.cfg.get("provider", "") or "")
@@ -951,6 +967,8 @@ class DesktopApp(object):
     def _finish_answer(self, final: str) -> None:
         if not self.busy:
             return
+        if final and self.current_sid:
+            db.add_trace(self.current_sid, "final", _brief(final, 400))
         if self.answer_started:
             if self.answer_len == 0 and final and not self.error_shown:
                 self._insert(final, "agent")
@@ -1180,6 +1198,89 @@ class DesktopApp(object):
             self.pending_confirms.remove(rec)
         except ValueError:
             pass
+
+    # ── 插件面板 ──
+    def open_plugins(self) -> None:
+        try:
+            win = tk.Toplevel(self.root)
+            win.title("插件面板")
+            win.geometry("620x420")
+            win.configure(bg=BG)
+            tk.Label(win, text="已加载插件", font=FONT_TITLE, bg=BG, fg=INK,
+                     anchor="w").pack(fill="x", padx=18, pady=(16, 8))
+            frame = tk.Frame(win, bg=BG)
+            frame.pack(fill="both", expand=True, padx=18, pady=4)
+            text = tk.Text(frame, wrap="word", font=FONT_SMALL, bg=CARD, fg=INK,
+                           relief="flat", bd=0, padx=12, pady=10)
+            text.pack(side="left", fill="both", expand=True)
+            scroll = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
+            text.configure(yscrollcommand=scroll.set)
+            scroll.pack(side="right", fill="y")
+            pm = getattr(self.rt, "plugins", None)
+            lines = []
+            if pm is None:
+                lines.append("（当前运行时没有插件管理器）")
+            elif not pm.loaded:
+                lines.append("（没有插件。把 .py 放进 plugins/ 目录即可扩展工具。）")
+            else:
+                for p in pm.loaded:
+                    status = "正常" if p.ok else "失败"
+                    lines.append("%s  [%s]" % (p.name, status))
+                    lines.append("  工具: %s" % (", ".join(p.tools) if p.tools else "-"))
+                    lines.append("  路径: %s" % p.path)
+                    if p.error:
+                        lines.append("  错误: %s" % p.error)
+                    lines.append("")
+            text.insert("1.0", "\n".join(lines))
+            text.configure(state="disabled")
+            tk.Button(win, text="重新加载插件", font=FONT_SMALL, bg=BLUE, fg="#FFFFFF",
+                      relief="flat", bd=0, cursor="hand2", padx=12, pady=6,
+                      command=lambda: self._reload_plugins(text)).pack(pady=12)
+        except Exception:
+            _fatal("插件面板打不开", traceback.format_exc())
+
+    def _reload_plugins(self, text: Any) -> None:
+        try:
+            msg = self.rt.reload_extensions()
+            text.configure(state="normal")
+            text.delete("1.0", "end")
+            text.insert("1.0", msg + "\n")
+            text.configure(state="disabled")
+        except Exception as exc:
+            write_log("重载插件失败：%s" % exc)
+
+    # ── Trajectory 轨迹面板 ──
+    def open_trajectory(self) -> None:
+        if not self.current_sid:
+            messagebox.showinfo(APP_TITLE, "还没有会话。", parent=self.root)
+            return
+        try:
+            win = tk.Toplevel(self.root)
+            win.title("执行轨迹")
+            win.geometry("700x460")
+            win.configure(bg=BG)
+            tk.Label(win, text="当前会话的执行轨迹", font=FONT_TITLE, bg=BG, fg=INK,
+                     anchor="w").pack(fill="x", padx=18, pady=(16, 8))
+            frame = tk.Frame(win, bg=BG)
+            frame.pack(fill="both", expand=True, padx=18, pady=4)
+            text = tk.Text(frame, wrap="word", font=FONT_SMALL, bg=CARD, fg=INK,
+                           relief="flat", bd=0, padx=12, pady=10)
+            text.pack(side="left", fill="both", expand=True)
+            scroll = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
+            text.configure(yscrollcommand=scroll.set)
+            scroll.pack(side="right", fill="y")
+            rows = db.list_trace(self.current_sid)
+            labels = {"thought": "思考", "action": "动作",
+                      "observation": "观察", "final": "回答"}
+            lines = []
+            for i, r in enumerate(rows, 1):
+                lines.append("%d. [%s] %s" %
+                             (i, labels.get(r["kind"], r["kind"]), r["detail"]))
+            text.insert("1.0", "\n".join(lines) if lines else
+                        "（还没有轨迹。发送消息后会记录思考、工具调用和观察。）")
+            text.configure(state="disabled")
+        except Exception:
+            _fatal("轨迹面板打不开", traceback.format_exc())
 
     # ── 设置 ──
     def open_settings(self, first_run: bool = False) -> None:
