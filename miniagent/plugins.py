@@ -44,9 +44,12 @@ class PluginManager(object):
         self.registry = registry
         self.ctx = ctx
         self.loaded: List[LoadedPlugin] = []
+        self.disabled: set = set()      # 被手动禁用的插件名
+        self.available: List[LoadedPlugin] = []   # 目录里发现但当前没加载的
 
     def load_all(self) -> List[LoadedPlugin]:
         self.loaded = []
+        self.available = []
         if not self.directory or not os.path.isdir(self.directory):
             LOG.info("插件目录不存在: %s", self.directory)
             return self.loaded
@@ -54,8 +57,39 @@ class PluginManager(object):
             if not fn.endswith(".py") or fn.startswith("_"):
                 continue
             path = os.path.join(self.directory, fn)
+            name = os.path.splitext(fn)[0]
+            if name in self.disabled:
+                self.available.append(LoadedPlugin(name, path, False, [], "已手动禁用"))
+                continue
             self.loaded.append(self.load_file(path))
         return self.loaded
+
+    def disable(self, name: str) -> bool:
+        """禁用一个插件（下次 reload 生效）。"""
+        if name in self.disabled:
+            return False
+        self.disabled.add(name)
+        LOG.info("插件 %s 已禁用", name)
+        return True
+
+    def enable(self, name: str) -> bool:
+        """重新启用一个插件（下次 reload 生效）。"""
+        if name not in self.disabled:
+            return False
+        self.disabled.discard(name)
+        LOG.info("插件 %s 已启用", name)
+        return True
+
+    def is_disabled(self, name: str) -> bool:
+        return name in self.disabled
+
+    def toggle(self, name: str) -> bool:
+        """切换禁用状态，返回切换后的可用性。"""
+        if self.is_disabled(name):
+            self.enable(name)
+            return True
+        self.disable(name)
+        return False
 
     def load_file(self, path: str) -> LoadedPlugin:
         name = os.path.splitext(os.path.basename(path))[0]
