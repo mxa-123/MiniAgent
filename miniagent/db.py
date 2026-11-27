@@ -42,6 +42,11 @@ def init_db() -> bool:
             "id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
             "role TEXT NOT NULL, content TEXT NOT NULL, ts REAL)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_msg_sid ON messages(session_id, id)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS trajectory ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
+            "kind TEXT NOT NULL, detail TEXT NOT NULL, ts REAL)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_traj_sid ON trajectory(session_id, id)")
         conn.commit()
         conn.close()
         return True
@@ -139,6 +144,41 @@ def clear_messages(sid: str) -> None:
         conn = _connect()
         conn.execute("DELETE FROM messages WHERE session_id=?", (sid,))
         conn.execute("UPDATE sessions SET updated_at=? WHERE id=?", (time.time(), sid))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def add_trace(sid: str, kind: str, detail: str) -> None:
+    """记录一条 Agent 轨迹（thought / tool_call / tool_result / final）。"""
+    try:
+        conn = _connect()
+        conn.execute("INSERT INTO trajectory (session_id, kind, detail, ts) "
+                     "VALUES (?, ?, ?, ?)", (sid, str(kind), str(detail or ""), time.time()))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def list_trace(sid: str, limit: int = 200) -> List[Dict[str, str]]:
+    try:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute("SELECT kind, detail FROM trajectory WHERE session_id=? "
+                    "ORDER BY id DESC LIMIT ?", (sid, int(limit)))
+        rows = cur.fetchall()
+        conn.close()
+        return [{"kind": r[0], "detail": r[1]} for r in reversed(rows)]
+    except Exception:
+        return []
+
+
+def clear_trace(sid: str) -> None:
+    try:
+        conn = _connect()
+        conn.execute("DELETE FROM trajectory WHERE session_id=?", (sid,))
         conn.commit()
         conn.close()
     except Exception:
