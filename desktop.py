@@ -97,6 +97,7 @@ from miniagent.onboarding import (EXAMPLES, PRESETS, apply_setup, check_setup,
                                  friendly_tool, humanize_error, setup_tips,
                                  test_connection)
 from miniagent.runtime import Runtime
+from miniagent import autostart
 from miniagent import db
 
 # ── 外观：DSH 风格（深色侧栏 + 浅色聊天区 + 圆润气泡），无 emoji ──
@@ -611,18 +612,33 @@ class DesktopApp(object):
 
         foot = tk.Frame(side, bg=SIDE_BG)
         foot.grid(row=4, column=0, sticky="sew", padx=12, pady=12)
-        tk.Button(foot, text="设置", font=FONT_SMALL, bg=SIDE_CARD, fg=SIDE_INK,
+        row1 = tk.Frame(foot, bg=SIDE_BG)
+        row1.pack()
+        row2 = tk.Frame(foot, bg=SIDE_BG)
+        row2.pack(pady=(7, 0))
+
+        tk.Button(row1, text="设置", font=FONT_SMALL, bg=SIDE_CARD, fg=SIDE_INK,
                   activebackground="#3A3D48", activeforeground=SIDE_INK,
                   relief="flat", bd=0, cursor="hand2", padx=8, pady=5,
                   command=self.open_settings).pack(side="left")
-        tk.Button(foot, text="插件", font=FONT_SMALL, bg=SIDE_CARD, fg=SIDE_INK,
+        tk.Button(row1, text="插件", font=FONT_SMALL, bg=SIDE_CARD, fg=SIDE_INK,
                   activebackground="#3A3D48", activeforeground=SIDE_INK,
                   relief="flat", bd=0, cursor="hand2", padx=8, pady=5,
                   command=self.open_plugins).pack(side="left", padx=(6, 0))
-        tk.Button(foot, text="轨迹", font=FONT_SMALL, bg=SIDE_CARD, fg=SIDE_INK,
+        tk.Button(row1, text="轨迹", font=FONT_SMALL, bg=SIDE_CARD, fg=SIDE_INK,
                   activebackground="#3A3D48", activeforeground=SIDE_INK,
                   relief="flat", bd=0, cursor="hand2", padx=8, pady=5,
                   command=self.open_trajectory).pack(side="left", padx=(6, 0))
+
+        self.autostart_btn = tk.Button(row2, text="开机自启", font=FONT_SMALL,
+                                       bg=SIDE_CARD, fg=SIDE_DIM,
+                                       activebackground="#3A3D48",
+                                       activeforeground=SIDE_INK,
+                                       relief="flat", bd=0, cursor="hand2",
+                                       padx=8, pady=5,
+                                       command=self.toggle_autostart)
+        self.autostart_btn.pack(side="left")
+        self._refresh_autostart_btn()
         tk.Label(foot, textvariable=self.status_var, font=FONT_SMALL, bg=SIDE_BG,
                  fg=SIDE_DIM, anchor="w").pack(side="right", fill="x", expand=True)
 
@@ -928,6 +944,9 @@ class DesktopApp(object):
             self.current_step = int(info.get("step", 1) or 1)
             self.step_max = int(info.get("max", 1) or 1)
             self._append_hint("· 第 %d 步（最多 %d 步）" % (self.current_step, self.step_max))
+            if self.current_sid:
+                db.add_trace(self.current_sid, "plan",
+                             "进入第 %d 步（共 %d 步）" % (self.current_step, self.step_max))
         elif kind == "tool_call":
             info = data if isinstance(data, dict) else {}
             self._close_answer()
@@ -1198,6 +1217,33 @@ class DesktopApp(object):
             self.pending_confirms.remove(rec)
         except ValueError:
             pass
+
+    # ── 开机自启（无人值守） ──
+    def _refresh_autostart_btn(self) -> None:
+        try:
+            on = autostart.is_enabled()
+        except Exception:
+            on = False
+        try:
+            self.autostart_btn.configure(
+                text="开机自启：开" if on else "开机自启：关",
+                fg=SIDE_INK if on else SIDE_DIM)
+        except Exception:
+            pass
+
+    def toggle_autostart(self) -> None:
+        try:
+            on = autostart.toggle()
+        except Exception as exc:
+            write_log("切换开机自启失败：%s" % exc)
+            try:
+                messagebox.showerror(APP_TITLE, "切换开机自启失败：%s" % exc,
+                                     parent=self.root)
+            except Exception:
+                pass
+            return
+        self._refresh_autostart_btn()
+        self._append_hint("开机自启已%s。" % ("开启" if on else "关闭"))
 
     # ── 插件面板 ──
     def open_plugins(self) -> None:
