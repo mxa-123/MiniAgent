@@ -52,6 +52,20 @@ VIAddVersionKey "FileDescription" "MiniAgent for Win7 / Win8.1 (32-bit)"
   FileClose $0
 !macroend
 
+; ---- helper: console launcher for unattended / scripted use ----
+!macro WRITE_CLI_LAUNCHER PATH
+  SetOutPath "$INSTDIR"
+  FileOpen $0 "${PATH}" w
+  FileWrite $0 '@echo off$\r$\n'
+  FileWrite $0 'chcp 65001 >nul$\r$\n'
+  FileWrite $0 'cd /d "$INSTDIR"$\r$\n'
+  FileWrite $0 'set "TCL_LIBRARY=$INSTDIR\python\tcl\tcl8.6"$\r$\n'
+  FileWrite $0 'set "TK_LIBRARY=$INSTDIR\python\tcl\tk8.6"$\r$\n'
+  FileWrite $0 '"$INSTDIR\python\python.exe" "$INSTDIR\run.py" %*$\r$\n'
+  FileWrite $0 'echo [exit code: %errorlevel%]$\r$\n'
+  FileClose $0
+!macroend
+
 Section "MiniAgent" SecMain
   SetOutPath "$INSTDIR"
 
@@ -73,6 +87,7 @@ Section "MiniAgent" SecMain
   SetOutPath "$INSTDIR"
   ; launchers
   !insertmacro WRITE_LAUNCHER "$INSTDIR\MiniAgent.bat"
+  !insertmacro WRITE_CLI_LAUNCHER "$INSTDIR\MiniAgent-CLI.bat"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   ; register (HKCU, no UAC)
@@ -89,6 +104,7 @@ Section "MiniAgent" SecMain
   CreateDirectory "$SMPROGRAMS\MiniAgent"
   CreateShortCut "$DESKTOP\MiniAgent.lnk" "$INSTDIR\MiniAgent.bat" "" "$INSTDIR\python\pythonw.exe" 0
   CreateShortCut "$SMPROGRAMS\MiniAgent\MiniAgent.lnk" "$INSTDIR\MiniAgent.bat" "" "$INSTDIR\python\pythonw.exe" 0
+  CreateShortCut "$SMPROGRAMS\MiniAgent\MiniAgent-CLI.lnk" "$INSTDIR\MiniAgent-CLI.bat" "" "$INSTDIR\python\python.exe" 0
   CreateShortCut "$SMPROGRAMS\MiniAgent\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
 SectionEnd
 
@@ -99,6 +115,7 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\MiniAgent"
 
   Delete "$INSTDIR\MiniAgent.bat"
+  Delete "$INSTDIR\MiniAgent-CLI.bat"
   Delete "$INSTDIR\desktop.py"
   Delete "$INSTDIR\run.py"
   Delete "$INSTDIR\vc_redist.x86.exe"
