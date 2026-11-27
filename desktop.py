@@ -47,7 +47,7 @@ except Exception:
 
 try:
     import tkinter as tk
-    from tkinter import messagebox, ttk
+    from tkinter import filedialog, messagebox, ttk
 except ImportError:
     # 老系统便携版默认不带 Tcl/Tk：不崩溃，自动降级到网页界面（同样是图形界面）。
     # pythonw.exe 没有控制台，这里用日志 + 自启 Web UI + 打开浏览器兜底。
@@ -1360,7 +1360,7 @@ class DesktopApp(object):
             text.configure(yscrollcommand=scroll.set)
             scroll.pack(side="right", fill="y")
             rows = db.list_trace(self.current_sid)
-            labels = {"thought": "思考", "action": "动作",
+            labels = {"thought": "思考", "plan": "计划", "action": "动作",
                       "observation": "观察", "final": "回答"}
             lines = []
             for i, r in enumerate(rows, 1):
@@ -1369,6 +1369,30 @@ class DesktopApp(object):
             text.insert("1.0", "\n".join(lines) if lines else
                         "（还没有轨迹。发送消息后会记录思考、工具调用和观察。）")
             text.configure(state="disabled")
+
+            def do_export() -> None:
+                try:
+                    path = filedialog.asksaveasfilename(
+                        parent=win, title="导出执行轨迹",
+                        defaultextension=".txt",
+                        initialfile="trajectory_%s.txt" % str(self.current_sid)[:8],
+                        filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
+                except Exception:
+                    return
+                if not path:
+                    return
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        for i, r in enumerate(rows, 1):
+                            f.write("%d. [%s] %s\n" %
+                                    (i, labels.get(r["kind"], r["kind"]), r["detail"]))
+                    self._append_hint("轨迹已导出：%s" % path)
+                except Exception as exc:
+                    write_log("导出轨迹失败：%s" % exc)
+
+            tk.Button(win, text="导出轨迹", font=FONT_SMALL, bg=BLUE, fg="#FFFFFF",
+                      relief="flat", bd=0, cursor="hand2", padx=12, pady=6,
+                      command=do_export).pack(pady=12)
         except Exception:
             _fatal("轨迹面板打不开", traceback.format_exc())
 
