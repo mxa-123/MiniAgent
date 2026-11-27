@@ -97,6 +97,7 @@ from miniagent.onboarding import (EXAMPLES, PRESETS, apply_setup, check_setup,
                                  friendly_tool, humanize_error, setup_tips,
                                  test_connection)
 from miniagent.runtime import Runtime
+from miniagent import db
 
 # ── 外观：DSH 风格（深色侧栏 + 浅色聊天区 + 圆润气泡），无 emoji ──
 # 参考 DSH 桌面端配色：侧栏 #1E1F26 / 主区 #F7F7F9 / 强调蓝 #4A7CF5
@@ -550,7 +551,13 @@ class DesktopApp(object):
         root.minsize(880, 600)
         root.configure(bg=BG)
         self._session_items: List[Any] = []
+        # ── 多会话：启动时确保至少一个会话，记住当前会话 ID ──
+        db.init_db()
+        _sessions = db.list_sessions()
+        self.current_sid: Optional[str] = (
+            _sessions[0]["id"] if _sessions else db.create_session("新的对话"))
         self._build_ui()
+        self._load_session(self.current_sid, silent=True)
         self._wire_agent()
         self._set_status("")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -580,7 +587,7 @@ class DesktopApp(object):
         tk.Button(side, text="+  新建对话", font=FONT_BOLD, bg="#3A5FD9",
                   fg="#FFFFFF", activebackground="#4A7CF5", activeforeground="#FFFFFF",
                   relief="flat", bd=0, cursor="hand2", padx=10, pady=7,
-                  anchor="w", command=self.clear_chat).grid(
+                  anchor="w", command=self.new_chat).grid(
                       row=1, column=0, sticky="ew", padx=12, pady=(0, 14))
 
         tk.Label(side, text="最近会话", font=FONT_SMALL, bg=SIDE_BG,
@@ -588,16 +595,19 @@ class DesktopApp(object):
                      row=2, column=0, sticky="ew", padx=18, pady=(0, 6))
 
         sess = tk.Frame(side, bg=SIDE_BG)
-        sess.grid(row=3, column=0, sticky="new", padx=8)
+        sess.grid(row=3, column=0, sticky="nsew", padx=8)
         sess.columnconfigure(0, weight=1)
-        demo = ["新的对话", "写一段 Python 代码", "帮我整理笔记", "周末计划"]
-        for i, name in enumerate(demo):
-            active = (i == 0)
-            tk.Label(sess, text="  " + name, font=FONT,
-                     bg=SIDE_CARD if active else SIDE_BG,
-                     fg=SIDE_INK if active else SIDE_DIM,
-                     anchor="w", padx=8, pady=7).grid(
-                         row=i, column=0, sticky="ew", pady=2)
+        # 用 Canvas + 内部 Frame 实现可滚动会话列表（Tk 的 Listbox 无法做多色圆角）
+        self._sess_canvas = tk.Canvas(sess, bg=SIDE_BG, highlightthickness=0)
+        self._sess_canvas.grid(row=0, column=0, sticky="nsew")
+        self._sess_inner = tk.Frame(self._sess_canvas, bg=SIDE_BG)
+        self._sess_win = self._sess_canvas.create_window(
+            (0, 0), window=self._sess_inner, anchor="nw")
+        self._sess_canvas.bind("<Configure>", self._on_sess_resize)
+        self._sess_canvas.bind("<MouseWheel>", self._on_sess_wheel)
+        self._sess_canvas.bind("<Button-4>", self._on_sess_wheel)
+        self._sess_canvas.bind("<Button-5>", self._on_sess_wheel)
+        self._refresh_sessions()
 
         foot = tk.Frame(side, bg=SIDE_BG)
         foot.grid(row=4, column=0, sticky="sew", padx=12, pady=12)
@@ -711,6 +721,131 @@ class DesktopApp(object):
         t.tag_config("error_body", foreground=RED, background=RED_BG,
                      font=FONT, lmargin1=16, lmargin2=16, rmargin=60, spacing3=8)
 
+    # ── 多会话管理 ──
+    def _on_sess_resize(self, event: Any) -> None:
+        try:
+            self._sess_canvas.itemconfigure(self._sess_win, width=event.width)
+        except Exception:
+            pass
+
+    def _on_sess_wheel(self, event: Any) -> str:
+        try:
+            step = -1 if (event.num == 4 or event.delta > 0) else 1
+            self._sess_canvas.yview_scroll(step, "units")
+        except Exception:
+            pass
+        return "break"
+
+    def _refresh_sessions(self) -> None:
+        """按数据库内容重建左侧会话列表。"""
+        inner = getattr(self, "_sess_inner", None)
+        if inner is None:
+            return
+        for w in list(inner.winfo_children()):
+            w.destroy()
+        self._session_items = []
+        rows = db.list_sessions()
+        if not rows:
+            tk.Label(inner, text="  （还没有会话）", font=FONT_SMALL,
+                     bg=SIDE_BG, fg=SIDE_DIM, anchor="w",
+                     padx=8, pady=7).grid(row=0, column=0, sticky="ew")
+            return
+        for i, row in enumerate(rows):
+            sid = row["id"]
+            active = (sid == self.current_sid)
+            base = SIDE_CARD if active else SIDE_BG
+            item = tk.Frame(inner, bg=base)
+            item.grid(row=i, column=0, sticky="ew")
+            item.columnconfigure(0, weight=1)
+            title = row["title"] or "新的对话"
+            if len(title) > 12:
+                title = title[:11] + "…"
+            tk.Button(item, text="  " + title, font=FONT, bg=base,
+                      fg=SIDE_INK if active else SIDE_DIM,
+                      activebackground="#3A3D48", activeforeground=SIDE_INK,
+                      relief="flat", bd=0, anchor="w", cursor="hand2",
+                      command=lambda s=sid: self._load_session(s)).grid(
+                          row=0, column=0, sticky="ew", pady=2)
+            tk.Button(item, text="×", font=FONT_SMALL, bg=base,
+                      fg=SIDE_DIM, activebackground="#3A3D48",
+                      relief="flat", bd=0, cursor="hand2", width=2,
+                      command=lambda s=sid: self._delete_session(s)).grid(
+                          row=0, column=1, sticky="e", padx=(0, 6))
+            self._session_items.append(item)
+        try:
+            self._sess_canvas.configure(scrollregion=self._sess_canvas.bbox("all"))
+        except Exception:
+            pass
+
+    def _sync_memory(self, sid: str) -> None:
+        """把 Agent 的短期记忆切到指定会话，避免跨会话串话。"""
+        try:
+            mem = self.rt.memory
+            msgs = db.list_messages(sid)
+            mem.name = sid
+            mem.path = os.path.join(mem.session_dir, sid + ".jsonl")
+            mem._messages = [{"role": m["role"], "content": m["content"]}
+                             for m in msgs]
+        except Exception as exc:
+            write_log("切换会话记忆失败：%s" % exc)
+
+    def _load_session(self, sid: Optional[str], silent: bool = False) -> None:
+        if not sid:
+            return
+        if self.busy and not silent:
+            messagebox.showinfo(APP_TITLE, "正在回复中，等这一句说完再切换。",
+                                parent=self.root)
+            return
+        self.current_sid = sid
+        self._sync_memory(sid)
+        msgs = db.list_messages(sid)
+        self.text.configure(state="normal")
+        self.text.delete("1.0", "end")
+        self.text.configure(state="disabled")
+        if msgs:
+            for m in msgs:
+                if m["role"] == "user":
+                    self._append_user(m["content"])
+                elif m["role"] == "assistant":
+                    self._insert("MiniAgent\n", "agent_label")
+                    self._insert(m["content"] + "\n", "agent")
+        else:
+            self._build_welcome()
+        self._refresh_sessions()
+        if not silent:
+            self._set_status("")
+            self._focus_input()
+
+    def new_chat(self) -> None:
+        if self.busy:
+            messagebox.showinfo(APP_TITLE, "正在回复中，等这一句说完再新建。",
+                                parent=self.root)
+            return
+        sid = db.create_session("新的对话")
+        if not sid:
+            messagebox.showerror(APP_TITLE, "创建会话失败，请看桌面日志。",
+                                 parent=self.root)
+            return
+        self._load_session(sid)
+
+    def _delete_session(self, sid: str) -> None:
+        if self.busy:
+            messagebox.showinfo(APP_TITLE, "正在回复中，等这一句说完再删除。",
+                                parent=self.root)
+            return
+        if not messagebox.askyesno(APP_TITLE, "确定删除这个会话？不可恢复。",
+                                   parent=self.root):
+            return
+        db.delete_session(sid)
+        rows = db.list_sessions()
+        if sid == self.current_sid:
+            if rows:
+                self._load_session(rows[0]["id"])
+            else:
+                self._load_session(db.create_session("新的对话"))
+        else:
+            self._refresh_sessions()
+
     def _build_welcome(self) -> None:
         """6 个可点击示例卡片，直接嵌在消息区顶部。"""
         frame = tk.Frame(self.text, bg=CARD, padx=4, pady=4)
@@ -775,6 +910,7 @@ class DesktopApp(object):
                 self.answer_started = True
             self._insert(chunk, "agent")
             self.answer_len += len(chunk)
+            self.answer_buf.append(chunk)
         elif kind == "step":
             info = data if isinstance(data, dict) else {}
             self.current_step = int(info.get("step", 1) or 1)
@@ -822,6 +958,12 @@ class DesktopApp(object):
         elif final and not self.error_shown:
             self._insert("MiniAgent\n", "agent_label")
             self._insert(final + "\n", "agent")
+        if self.current_sid and not self.error_shown:
+            answer = (final or "").strip() or "".join(self.answer_buf).strip()
+            if answer:
+                db.add_message(self.current_sid, "assistant", answer)
+                self._refresh_sessions()
+        self.answer_buf = []
         self.busy = False
         self._set_status("")
 
@@ -901,7 +1043,15 @@ class DesktopApp(object):
             return
         self.input.delete("1.0", "end")
         self._append_user(content)
+        if self.current_sid:
+            db.add_message(self.current_sid, "user", content)
+            user_count = len([m for m in db.list_messages(self.current_sid)
+                              if m["role"] == "user"])
+            if user_count == 1:
+                db.rename_session(self.current_sid, content[:24])
+                self._refresh_sessions()
         self.busy = True
+        self.answer_buf = []
         self.answer_started = False
         self.answer_len = 0
         self.error_shown = False
@@ -928,15 +1078,15 @@ class DesktopApp(object):
             messagebox.showinfo(APP_TITLE, "正在回复中，等一下再清空。",
                                 parent=self.root)
             return
+        if self.current_sid:
+            db.clear_messages(self.current_sid)
+            self._sync_memory(self.current_sid)
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
         self.text.configure(state="disabled")
-        try:
-            self.rt.memory.clear()
-        except Exception as exc:
-            write_log("清空会话失败：%s" % exc)
         self._build_welcome()
-        self._append_hint("对话已清空，可以重新开始。")
+        self._append_hint("当前会话已清空，可以重新开始。")
+        self._refresh_sessions()
 
     # ── 主线程轮询 ──
     def _poll(self) -> None:
