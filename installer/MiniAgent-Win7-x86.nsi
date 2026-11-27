@@ -66,6 +66,21 @@ VIAddVersionKey "FileDescription" "MiniAgent for Win7 / Win8.1 (32-bit)"
   FileClose $0
 !macroend
 
+; ---- helper: one-click self-check launcher ----
+!macro WRITE_SELFCHECK_LAUNCHER PATH
+  SetOutPath "$INSTDIR"
+  FileOpen $0 "${PATH}" w
+  FileWrite $0 '@echo off$\r$\n'
+  FileWrite $0 'chcp 65001 >nul$\r$\n'
+  FileWrite $0 'cd /d "$INSTDIR"$\r$\n'
+  FileWrite $0 'set "TCL_LIBRARY=$INSTDIR\python\tcl\tcl8.6"$\r$\n'
+  FileWrite $0 'set "TK_LIBRARY=$INSTDIR\python\tcl\tk8.6"$\r$\n'
+  FileWrite $0 '"$INSTDIR\python\python.exe" "$INSTDIR\tests\win7_selfcheck.py"$\r$\n'
+  FileWrite $0 'echo.$\r$\n'
+  FileWrite $0 'pause$\r$\n'
+  FileClose $0
+!macroend
+
 Section "MiniAgent" SecMain
   SetOutPath "$INSTDIR"
 
@@ -83,11 +98,14 @@ Section "MiniAgent" SecMain
   File "${MINIAGENT_STAGE}\plugins\*.py"
   SetOutPath "$INSTDIR\skills"
   File "${MINIAGENT_STAGE}\skills\*.*"
+  SetOutPath "$INSTDIR\tests"
+  File /r "${MINIAGENT_STAGE}\tests"
 
   SetOutPath "$INSTDIR"
   ; launchers
   !insertmacro WRITE_LAUNCHER "$INSTDIR\MiniAgent.bat"
   !insertmacro WRITE_CLI_LAUNCHER "$INSTDIR\MiniAgent-CLI.bat"
+  !insertmacro WRITE_SELFCHECK_LAUNCHER "$INSTDIR\MiniAgent-SelfCheck.bat"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   ; register (HKCU, no UAC)
@@ -105,6 +123,7 @@ Section "MiniAgent" SecMain
   CreateShortCut "$DESKTOP\MiniAgent.lnk" "$INSTDIR\MiniAgent.bat" "" "$INSTDIR\python\pythonw.exe" 0
   CreateShortCut "$SMPROGRAMS\MiniAgent\MiniAgent.lnk" "$INSTDIR\MiniAgent.bat" "" "$INSTDIR\python\pythonw.exe" 0
   CreateShortCut "$SMPROGRAMS\MiniAgent\MiniAgent-CLI.lnk" "$INSTDIR\MiniAgent-CLI.bat" "" "$INSTDIR\python\python.exe" 0
+  CreateShortCut "$SMPROGRAMS\MiniAgent\MiniAgent 自检.lnk" "$INSTDIR\MiniAgent-SelfCheck.bat" "" "$INSTDIR\python\python.exe" 0
   CreateShortCut "$SMPROGRAMS\MiniAgent\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
 SectionEnd
 
@@ -116,6 +135,8 @@ Section "Uninstall"
 
   Delete "$INSTDIR\MiniAgent.bat"
   Delete "$INSTDIR\MiniAgent-CLI.bat"
+  Delete "$INSTDIR\MiniAgent-SelfCheck.bat"
+  RMDir /r "$INSTDIR\tests"
   Delete "$INSTDIR\desktop.py"
   Delete "$INSTDIR\run.py"
   Delete "$INSTDIR\vc_redist.x86.exe"
