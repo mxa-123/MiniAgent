@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """插件化微内核：服务定位 + 可拦截事件链 + 可卸载副作用 + 槽位 + 分段提示词。
-
 设计灵感来自「一切皆插件」的分层架构思想（参考开源项目 DeepSeek Harness 的公开设计思路；对方许可证以其仓库声明为准）。
 本文件为独立编写的实现，未使用、未复制任何第三方项目的源码、常量或文案。
 
@@ -8,11 +7,12 @@
 
 五个能力：
   1. 服务定位：provide / get，插件按名字取依赖，不互相硬引用。
-  2. 事件链：on / emit，监听者可拦截并改写本次调用的载荷（洋葱模型）。
+  2. 事件链：on / emit，监听者可拦截并改写载荷（洋葱模型）。
   3. 可卸载副作用：effect / inject / on / section / slot 都返回卸载句柄；
-     插件装载期间的注册物自动归属该插件，卸载时统一撤销。
+     插件装载期间的注册物自动归属该插件，卸载时一并撤销。
   4. 槽位：slot / contributions，界面由多方贡献后统一渲染。
   5. 分段提示词：section / compose_prompt，按 order 合成系统提示词。
+
 """
 
 from __future__ import annotations
@@ -20,14 +20,36 @@ from __future__ import annotations
 import inspect
 import itertools
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
 
 from .util import LOG
 
-# 事件名用点号分隔，区别于任何第三方项目的命名习惯。
 EVENT_REQUEST = "agent.request"
 EVENT_PROMPT = "prompt.compose"
 EVENT_STARTUP = "kernel.startup"
 EVENT_SHUTDOWN = "kernel.shutdown"
+
+
+@dataclass
+class Task:
+    """DSH核心：任务对象。包含状态机逻辑。"""
+    id: str
+    goal: str
+    steps: List[Dict[str, Any]]  # 每个 step 包含 {"desc": ..., "action": ..., "status": ...}
+    current_step_idx: int = 0
+    history: List[Dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def status(self) -> str:
+        if self.current_step_idx >= len(self.steps):
+            return "COMPLETED"
+        return "RUNNING"
+
+    def next_step(self):
+        self.current_step_idx += 1
+
+    def update_history(self, result: Any):
+        self.history.append({"step": self.current_step_idx, "result": result})
 
 
 class Disposer(object):
@@ -113,9 +135,9 @@ class Kernel(object):
     def service_names(self) -> List[str]:
         return sorted(self._services.keys())
 
-    # ── 2. 事件链（洋葱模型，可拦截改写）──────────────────────
+    # ── 2. 事件链（洋葱模型，可拦截改写）──────────────────────────
     def on(self, event: str, handler: Callable[..., Any],
-           prepend: bool = False, priority: int = 100) -> Disposer:
+            prepend: bool = False, priority: int = 100) -> Disposer:
         """注册监听者。
 
         - handler(payload, next) 视为拦截器：可改写载荷、可决定是否继续；
@@ -126,7 +148,7 @@ class Kernel(object):
         except (TypeError, ValueError):
             intercept = False
         rec = {"fn": handler, "intercept": intercept,
-               "order": (-1000 if prepend else priority), "seq": next(self._seq)}
+                "order": (-1000 if prepend else priority), "seq": next(self._seq)}
         self._handlers.setdefault(event, []).append(rec)
         self._handlers[event].sort(key=lambda r: (r["order"], r["seq"]))
 
@@ -179,7 +201,7 @@ class Kernel(object):
     def has_listeners(self, event: str) -> bool:
         return bool(self._handlers.get(event))
 
-    # ── 3. 可卸载副作用 / 依赖注入 ─────────────────────────────
+    # ── 3. 可卸载副作用 / 依赖注入 ───────────────────────────────
     def effect(self, fn: Callable[..., Any]) -> Disposer:
         """立即执行 fn，其返回值若是可调用对象则作为清理函数。"""
         cleanup: Optional[Callable[[], None]] = None
@@ -195,14 +217,14 @@ class Kernel(object):
         """依赖齐备才执行；缺依赖抛错，避免插件在半初始化状态下运行。"""
         missing = [d for d in deps if d not in self._services]
         if missing:
-            raise KeyError("插件依赖未就绪: %s" % ", ".join(missing))
+            raise KeyError("插件 %s 依赖未就绪: %s" % ", ".join(missing))
         return self.effect(fn)
 
     # ── 4. 槽位 ───────────────────────────────────────────────
     def slot(self, name: str, key: str, value: Any, order: int = 100) -> Disposer:
-        """向命名槽位贡献一项内容，界面层自行决定如何渲染。"""
+        """向命名槽位贡献一项内容，界面由多方贡献后统一渲染。"""
         rec = {"key": key, "value": value,
-               "order": order, "seq": next(self._seq)}
+                "order": order, "seq": next(self._seq)}
         self._slots.setdefault(name, []).append(rec)
         self._slots[name].sort(key=lambda r: (r["order"], r["seq"]))
 
@@ -222,14 +244,14 @@ class Kernel(object):
 
     # ── 5. 分段提示词 ─────────────────────────────────────────
     def section(self, name: str, text: str, order: int = 100) -> Disposer:
-        """贡献一段系统提示词；同名段覆盖，按 order 排序合成。"""
+        """贡献一段系统提示词；同名段覆盖，按 order 合成。"""
         for rec in self._sections:
             if rec["name"] == name:
                 rec["text"] = text
                 rec["order"] = order
                 return Disposer(None)
         rec = {"name": name, "text": text, "order": order,
-               "seq": next(self._seq)}
+                "seq": next(self._seq)}
         self._sections.append(rec)
 
         def undo() -> None:
@@ -254,7 +276,7 @@ class Kernel(object):
         return [r["name"] for r in sorted(self._sections,
                                           key=lambda r: (r["order"], r["seq"]))]
 
-    # ── 6. 插件装载 / 卸载 ────────────────────────────────────
+    # ── 6. 插件装载 / 卸载 ──────────────────────────────────────
     def load(self, plugin: Plugin) -> Disposer:
         """装配插件：检查依赖 → 收集其注册物 → 执行 apply。"""
         name = plugin.name or plugin.__class__.__name__
@@ -263,8 +285,7 @@ class Kernel(object):
         deps = tuple(getattr(plugin, "inject", ()) or ())
         missing = [d for d in deps if d not in self._services]
         if missing:
-            raise KeyError("插件 %s 依赖未就绪: %s" % (name, ", ".join(missing)))
-
+            raise KeyError("插件 %s 依赖未就绪: %s" % ", ".join(missing))
         owned: List[Disposer] = []
         self._owner_stack.append(owned)
         try:
@@ -295,7 +316,7 @@ class Kernel(object):
     def plugin_names(self) -> List[str]:
         return sorted(self._plugins.keys())
 
-    # ── 7. 生命周期 ───────────────────────────────────────────
+    # ── 7. 生命周期 ────────────────────────────────────────────
     def startup(self) -> None:
         self.emit(EVENT_STARTUP, {"kernel": self})
 
@@ -310,7 +331,6 @@ class Kernel(object):
         self._slots.clear()
         self._sections.clear()
         self._services.clear()
-
 
 def _takes_arg(fn: Callable[..., Any]) -> bool:
     try:
