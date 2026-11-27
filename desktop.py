@@ -1250,50 +1250,94 @@ class DesktopApp(object):
         try:
             win = tk.Toplevel(self.root)
             win.title("插件面板")
-            win.geometry("620x420")
+            win.geometry("660x460")
             win.configure(bg=BG)
-            tk.Label(win, text="已加载插件", font=FONT_TITLE, bg=BG, fg=INK,
-                     anchor="w").pack(fill="x", padx=18, pady=(16, 8))
-            frame = tk.Frame(win, bg=BG)
-            frame.pack(fill="both", expand=True, padx=18, pady=4)
-            text = tk.Text(frame, wrap="word", font=FONT_SMALL, bg=CARD, fg=INK,
-                           relief="flat", bd=0, padx=12, pady=10)
-            text.pack(side="left", fill="both", expand=True)
-            scroll = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
-            text.configure(yscrollcommand=scroll.set)
+            tk.Label(win, text="插件", font=FONT_TITLE, bg=BG, fg=INK,
+                     anchor="w").pack(fill="x", padx=18, pady=(16, 4))
+            tk.Label(win, text="把 .py 放进 plugins/ 目录即可扩展工具；"
+                               "点「禁用」可临时停用，重载后生效。",
+                     font=FONT_SMALL, bg=BG, fg=MUTED,
+                     anchor="w").pack(fill="x", padx=18, pady=(0, 8))
+
+            body = tk.Frame(win, bg=BG)
+            body.pack(fill="both", expand=True, padx=18, pady=4)
+            scroll = tk.Scrollbar(body, orient="vertical")
             scroll.pack(side="right", fill="y")
-            pm = getattr(self.rt, "plugins", None)
-            lines = []
-            if pm is None:
-                lines.append("（当前运行时没有插件管理器）")
-            elif not pm.loaded:
-                lines.append("（没有插件。把 .py 放进 plugins/ 目录即可扩展工具。）")
-            else:
-                for p in pm.loaded:
-                    status = "正常" if p.ok else "失败"
-                    lines.append("%s  [%s]" % (p.name, status))
-                    lines.append("  工具: %s" % (", ".join(p.tools) if p.tools else "-"))
-                    lines.append("  路径: %s" % p.path)
-                    if p.error:
-                        lines.append("  错误: %s" % p.error)
-                    lines.append("")
-            text.insert("1.0", "\n".join(lines))
-            text.configure(state="disabled")
+            holder = tk.Frame(body, bg=BG)
+            holder.pack(side="left", fill="both", expand=True)
+
+            def refresh() -> None:
+                for child in holder.winfo_children():
+                    child.destroy()
+                pm = getattr(self.rt, "plugins", None)
+                if pm is None:
+                    tk.Label(holder, text="（当前运行时没有插件管理器）",
+                             font=FONT_SMALL, bg=BG, fg=MUTED,
+                             anchor="w").pack(fill="x", pady=6)
+                    return
+                items = list(getattr(pm, "loaded", []))
+                for p in getattr(pm, "available", []):
+                    if p.name not in [x.name for x in items]:
+                        items.append(p)
+                if not items:
+                    tk.Label(holder, text="（没有插件。把 .py 放进 plugins/ 目录即可扩展工具。）",
+                             font=FONT_SMALL, bg=BG, fg=MUTED,
+                             anchor="w").pack(fill="x", pady=6)
+                    return
+                for p in items:
+                    row = tk.Frame(holder, bg=CARD)
+                    row.pack(fill="x", pady=3)
+                    off = bool(getattr(pm, "is_disabled", lambda _n: False)(p.name))
+                    if off:
+                        status, color = "已禁用", MUTED
+                    elif p.ok:
+                        status, color = "正常", BLUE
+                    else:
+                        status, color = "失败", RED
+                    tk.Label(row, text=p.name, font=FONT_BOLD, bg=CARD, fg=INK,
+                             anchor="w", width=16).pack(side="left", padx=(12, 0),
+                                                      pady=8)
+                    tk.Label(row, text=status, font=FONT_SMALL, bg=CARD, fg=color,
+                             anchor="w", width=6).pack(side="left")
+                    detail = (", ".join(p.tools) if p.ok else (p.error or ""))[:80]
+                    tk.Label(row, text=detail, font=FONT_SMALL, bg=CARD, fg=MUTED,
+                             anchor="w").pack(side="left", fill="x", expand=True)
+                    tk.Button(row, text="启用" if off else "禁用",
+                              font=FONT_SMALL, bg=BG, fg=INK,
+                              relief="flat", bd=0, cursor="hand2", padx=10, pady=4,
+                              command=lambda n=p.name: self._toggle_plugin(n, refresh)
+                              ).pack(side="right", padx=10)
+
+            def do_reload() -> None:
+                try:
+                    msg = self.rt.reload_extensions()
+                except Exception as exc:
+                    write_log("重载插件失败：%s" % exc)
+                    msg = "重载失败：%s" % exc
+                refresh()
+                tk.Label(holder, text=msg, font=FONT_SMALL, bg=BG, fg=MUTED,
+                         anchor="w").pack(fill="x", pady=(8, 0))
+
+            refresh()
             tk.Button(win, text="重新加载插件", font=FONT_SMALL, bg=BLUE, fg="#FFFFFF",
                       relief="flat", bd=0, cursor="hand2", padx=12, pady=6,
-                      command=lambda: self._reload_plugins(text)).pack(pady=12)
+                      command=do_reload).pack(pady=12)
         except Exception:
             _fatal("插件面板打不开", traceback.format_exc())
 
-    def _reload_plugins(self, text: Any) -> None:
+    def _toggle_plugin(self, name: str, refresh: Any) -> None:
         try:
-            msg = self.rt.reload_extensions()
-            text.configure(state="normal")
-            text.delete("1.0", "end")
-            text.insert("1.0", msg + "\n")
-            text.configure(state="disabled")
+            pm = getattr(self.rt, "plugins", None)
+            if pm is None or not hasattr(pm, "toggle"):
+                return
+            pm.toggle(name)
+            self.rt.reload_extensions()
         except Exception as exc:
-            write_log("重载插件失败：%s" % exc)
+            write_log("切换插件失败：%s" % exc)
+        try:
+            refresh()
+        except Exception:
+            pass
 
     # ── Trajectory 轨迹面板 ──
     def open_trajectory(self) -> None:
