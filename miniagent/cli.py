@@ -36,6 +36,8 @@ HELP = """\
   /addmodel <id> <来源> <模型名> [地址]   新增一条模型
   /mode [名称]       查看或切换模式 minimal/standard/code/creator
   /kernel            查看插件化内核的服务 / 提示词段 / 槽位
+  /plan <目标>       DSH 式「先拆解再执行」：规划步骤并逐条跑工具
+  /plan-only <目标>  只看拆解出来的步骤，不执行
   /config [k] [v]    查看或临时修改配置（如 /config temperature 0.7）
   /new               清空当前会话
   /save [文件]       导出会话到 JSONL
@@ -248,6 +250,8 @@ def handle_command(rt: Runtime, line: str) -> bool:
         print("提示词段: %s" % (", ".join(ks["sections"]) or "-"))
         print("槽位:     %s" % (", ".join(ks["slots"]) or "-"))
         print("已装插件: %s" % (", ".join(ks["plugins"]) or "-"))
+    elif cmd in ("/plan", "/plan-only"):
+        _handle_plan(rt, arg, execute=(cmd == "/plan"))
     elif cmd == "/config":
         _handle_config(rt, arg)
     elif cmd == "/new":
@@ -282,6 +286,24 @@ def handle_command(rt: Runtime, line: str) -> bool:
     else:
         print("未知命令: %s（/help 查看帮助）" % cmd)
     return False
+
+
+def _handle_plan(rt: Runtime, arg: str, execute: bool = True) -> None:
+    """/plan：DSH 式规划-执行闭环。"""
+    if not arg.strip():
+        print("用法: /plan <目标>（例如 /plan 把 notes 里的 txt 汇总成 md）")
+        return
+    from .pipeline import PlanRunner
+    runner = PlanRunner(rt.registry, llm=rt.llm, kernel=rt.kernel)
+    if not execute:
+        task = runner.plan_only(arg)
+        print("目标: %s" % task.goal)
+        for i, s in enumerate(task.steps):
+            print("  %d. %s -> %s %s" % (i + 1, s.get("desc"), s.get("action"),
+                                         s.get("args") or ""))
+        return
+    result = runner.run(arg)
+    print(PlanRunner.format_result(result))
 
 
 def _handle_config(rt: Runtime, arg: str) -> None:

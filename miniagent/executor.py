@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Executor 模块：驱动 Task 的步骤依次执行，并回填结果。
+"""Executor：驱动 Task 的步骤依次执行并回填结果。
 
 设计要点（参考 DeepSeek Harness 的「规划-执行-反馈」循环思想，独立实现）：
-  1. 每步骤把 step["action"] 交给工具注册表执行，参数取自 step["args"]；
-  2. 单步失败时可重试（retries），重试耗尽则标记任务失败并中止；
-  3. 每步结果写入 task.history，供 Planner 下次修正；
-  4. 可选 on_step 回调，用于把执行进度流式推给界面。
+  1. 每步把 step["action"] 交给工具注册表执行，参数取自 step["args"]；
+  2. 单步失败可重试；重试耗尽则标记该步 FAILED 并中止任务；
+  3. 每步结果写入 task.history，供 Planner 做自我修正；
+  4. 可选 on_step 回调，把执行进度实时推给界面（流式）。
 
 仅依赖标准库；语法兼容 Python 3.7 / 3.8（Win7 便携包）。
 """
@@ -13,15 +13,13 @@
 from __future__ import annotations
 
 import json
-import time
 from typing import Any, Callable, Dict, List, Optional
 
 from .kernel import Task
 from .util import LOG
 
-# 配置读取（从 config.example.json 或环境变量获取）
-DEFAULT_MODEL = "deepseek-chat"
-API_BASE = "https://api.deepseek.com/v1"
+_ERROR_MARKERS = ("错误：", "错误:", "异常：", "异常:", "traceback")
+
 
 class Executor(object):
     """按序执行 Task 的步骤。"""
@@ -35,6 +33,7 @@ class Executor(object):
         self.max_steps = max_steps
         self.on_step = on_step
 
+    # ── 内部 ───────────────────────────────────────────────────
     def _notify(self, payload: Dict[str, Any]) -> None:
         if self.on_step is None:
             return
@@ -43,40 +42,64 @@ class Executor(object):
         except Exception as exc:
             LOG.warning("on_step 回调异常: %s", exc)
 
+    @staticmethod
+    def _is_error(text: str) -> bool:
+        low = (text or "").lower()
+        return any(m in low for m in _ERROR_MARKERS)
+
+    def _execute(self, action: str, args: Dict[str, Any]) -> str:
+        result = self.registry.execute(action, args)
+        if result is None:
+            return "（无输出）"
+        if not isinstance(result, str):
+            try:
+                result = json.dumps(result, ensure_ascii=False)
+            except Exception:
+                result = str(result)
+        return result
+
+    # ── 主循环 ─────────────────────────────────────────────────
     def run(self, task: Task, retries: int = 1) -> bool:
         """执行整个任务，返回是否全部成功。"""
         total = len(task.steps)
+        if total == 0:
+            return True
         for idx in range(total):
             if idx >= self.max_steps:
                 LOG.warning("超过最大步数 %d，中止", self.max_steps)
+                task.current_step_idx = idx
                 return False
+
             step = task.steps[idx]
+            task.current_step_idx = idx
             step["status"] = "RUNNING"
             self._notify({"task": task, "index": idx, "step": step, "phase": "start"})
 
-            action = step.get("action") or step.get("tool") or ""
-            args = step.get("args") or {}
+            action = str(step.get("action") or step.get("tool") or "")
+            args = step.get("args") if isinstance(step.get("args"), dict) else {}
+
+            if not action:
+                step["status"] = "OK"
+                step["result"] = "（无动作，跳过）"
+                task.history.append({"index": idx, "action": "", "ok": True,
+                                     "result": step["result"]})
+                self._notify({"task": task, "index": idx, "step": step,
+                              "phase": "done", "result": step["result"]})
+                continue
 
             ok = False
             last_err = ""
             for attempt in range(retries + 1):
                 try:
-                    # 调用工具注册表中的方法
-                    result = self.registry.execute(action, args)
-                    if result is None:
-                        result = "（无输出）"
-                    text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
-                    
-                    # 简单判断错误标识
-                    is_err = text.lower().startswith("错误") or "traceback" in text.lower()
-                    if is_err:
+                    text = self._execute(action, args)
+                    if self._is_error(text):
                         last_err = text
                         LOG.warning("步骤 %d 第 %d 次失败: %s", idx, attempt + 1, last_err)
                         continue
                     step["status"] = "OK"
                     step["result"] = text
-                    task.update_history({"index": idx, "action": action,
-                                        "ok": True, "result": text})
+                    task.history.append({"index": idx, "action": action,
+                                         "ok": True, "result": text})
                     self._notify({"task": task, "index": idx, "step": step,
                                   "phase": "done", "result": text})
                     ok = True
@@ -88,18 +111,15 @@ class Executor(object):
             if not ok:
                 step["status"] = "FAILED"
                 step["error"] = last_err
-                task.update_history({"index": idx, "action": action,
-                                    "ok": False, "error": last_err})
+                task.history.append({"index": idx, "action": action,
+                                     "ok": False, "error": last_err})
                 self._notify({"task": task, "index": idx, "step": step,
                               "phase": "failed", "error": last_err})
                 return False
 
-        # 全部完成
         task.current_step_idx = total
-        task.steps[total-1]["status"] = "COMPLETED"
-        self._notify({"task": task, "index": total, "step": None,
-                       "phase": "completed"})
-        return ok
+        self._notify({"task": task, "index": total, "step": None, "phase": "completed"})
+        return True
 
     def run_plan(self, task: Task, retries: int = 1) -> Dict[str, Any]:
         """执行并返回结构化结果，便于上层（CLI / UI）展示。"""
@@ -117,27 +137,3 @@ class Executor(object):
             ],
             "history": task.history,
         }
-
-if __name__ == "__main__":
-    # 此处仅供手动测试运行
-    import sys
-    from miniagent.kernel import Kernel
-    from miniagent.planner import Planner
-    from miniagent.tools import Registry
-    
-    k = Kernel()
-    reg = Registry()
-    # 注册一个简单的 mock 工具用于测试
-    reg.register(name="inspect_files", description="检查文件", action="mock_check")
-    
-    p = Planner()
-    t = p.plan("帮我把这些图片处理了并更新到 GitHub")
-    e = Executor(registry=reg)
-    e.run_plan(t)
-    print(f"Final Result: {t.status}")
-    print(f"History: {t.history}")
-
-import sys
-if __name__ == "__main__":
-    # 此处仅供手动测试运行
-    pass

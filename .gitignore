@@ -8,6 +8,10 @@ tests/.tmp_webui/
 tests/.tmp_*/
 *.log
 
+# 打包中间产物（PyInstaller 展开目录），可由 packaging/prepare_win7.py 重新生成
+packaging/build/
+packaging/out/
+
 # 线上试玩部署目录（含 8MB 便携包 ZIP）与宣传素材，不进仓库
 deploy/
 promo/
